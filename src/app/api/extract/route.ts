@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { CATEGORIES } from '@/lib/categories'
 import sharp from 'sharp'
+import heicConvert from 'heic-convert'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -18,14 +19,16 @@ export async function POST(req: NextRequest) {
     let finalBase64 = imageBase64
     let finalMediaType = mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
 
-    // Convert HEIC/HEIF to JPEG server-side using sharp
+    // Convert HEIC/HEIF → JPEG using heic-convert (has its own decoder, no libvips needed)
+    // Then resize with sharp
     if (HEIC_TYPES.includes(mediaType)) {
       const inputBuffer = Buffer.from(imageBase64, 'base64')
-      const jpegBuffer = await sharp(inputBuffer)
+      const jpegBuffer = await heicConvert({ buffer: inputBuffer, format: 'JPEG', quality: 0.9 })
+      const resized = await sharp(Buffer.from(jpegBuffer))
         .resize({ width: 1500, height: 1500, fit: 'inside', withoutEnlargement: true })
         .jpeg({ quality: 88 })
         .toBuffer()
-      finalBase64 = jpegBuffer.toString('base64')
+      finalBase64 = resized.toString('base64')
       finalMediaType = 'image/jpeg'
     }
 
