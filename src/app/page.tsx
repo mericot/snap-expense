@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import heic2any from 'heic2any'
 
 type ExtractedExpense = {
   merchant: string | null
@@ -41,22 +42,44 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
 
-  async function handleFile(file: File) {
+  async function handleFile(rawFile: File) {
     setError(null)
     setResult(null)
     setPreview(null)
+    setStatus('loading')
+
+    let file = rawFile
+
+    // Convert HEIC/HEIF to JPEG transparently
+    if (
+      rawFile.type === 'image/heic' ||
+      rawFile.type === 'image/heif' ||
+      rawFile.name.toLowerCase().endsWith('.heic') ||
+      rawFile.name.toLowerCase().endsWith('.heif')
+    ) {
+      try {
+        const converted = await heic2any({ blob: rawFile, toType: 'image/jpeg', quality: 0.9 })
+        file = new File(
+          [converted as Blob],
+          rawFile.name.replace(/\.hei[cf]$/i, '.jpg'),
+          { type: 'image/jpeg' }
+        )
+      } catch {
+        setStatus('error')
+        setError('Could not convert HEIC photo. Try exporting it as JPEG first.')
+        return
+      }
+    }
 
     const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
     if (!allowed.includes(file.type)) {
       setStatus('error')
-      setError(
-        'HEIC/HEIF photos aren\'t supported by the AI vision model. To fix this on iPhone: go to Settings → Camera → Formats → Most Compatible. This makes your camera shoot JPEG instead.'
-      )
+      setError(`Unsupported file type (${file.type || 'unknown'}). Please use JPEG, PNG, or WebP.`)
       return
     }
 
     setPreview(URL.createObjectURL(file))
-    setStatus('loading')
+
 
     try {
       const { base64, mediaType } = await resizeImage(file, 1500)
@@ -126,7 +149,7 @@ export default function Home() {
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
             </svg>
-            <p className="text-sm text-zinc-400">Reading your receipt…</p>
+            <p className="text-sm text-zinc-400">Converting and reading your receipt…</p>
           </div>
         )}
 
