@@ -6,16 +6,11 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData()
-    const file = formData.get('receipt') as File | null
+    const { imageBase64, mediaType } = await req.json()
 
-    if (!file) {
-      return NextResponse.json({ error: 'Missing receipt file' }, { status: 400 })
+    if (!imageBase64 || !mediaType) {
+      return NextResponse.json({ error: 'Missing imageBase64 or mediaType' }, { status: 400 })
     }
-
-    const buffer = await file.arrayBuffer()
-    const base64 = Buffer.from(buffer).toString('base64')
-    const mediaType = file.type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
 
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -26,7 +21,7 @@ export async function POST(req: NextRequest) {
           content: [
             {
               type: 'image',
-              source: { type: 'base64', media_type: mediaType, data: base64 },
+              source: { type: 'base64', media_type: mediaType, data: imageBase64 },
             },
             {
               type: 'text',
@@ -53,7 +48,6 @@ Rules:
     try {
       extracted = JSON.parse(text)
     } catch {
-      // Fallback: try to find a JSON object in the response
       const match = text.match(/\{[\s\S]*\}/)
       if (!match) {
         return NextResponse.json({ error: 'Model returned unparseable response', raw: text }, { status: 422 })
@@ -61,7 +55,6 @@ Rules:
       extracted = JSON.parse(match[0])
     }
 
-    // Ensure category is from the fixed list
     if (extracted.category && !CATEGORIES.includes(extracted.category)) {
       extracted.category = 'Other'
     }

@@ -1,65 +1,174 @@
-import Image from "next/image";
+'use client'
+
+import { useRef, useState } from 'react'
+
+type ExtractedExpense = {
+  merchant: string | null
+  date: string | null
+  total: number | null
+  tax: number | null
+  category: string | null
+  confidence: 'high' | 'low'
+}
+
+function resizeImage(file: File, maxPx: number): Promise<{ base64: string; mediaType: string }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      const { width, height } = img
+      const scale = Math.min(1, maxPx / Math.max(width, height))
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(width * scale)
+      canvas.height = Math.round(height * scale)
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+      resolve({
+        base64: dataUrl.split(',')[1],
+        mediaType: 'image/jpeg',
+      })
+    }
+    img.onerror = reject
+    img.src = url
+  })
+}
 
 export default function Home() {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const [result, setResult] = useState<ExtractedExpense | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [preview, setPreview] = useState<string | null>(null)
+
+  async function handleFile(file: File) {
+    setError(null)
+    setResult(null)
+    setPreview(URL.createObjectURL(file))
+    setStatus('loading')
+
+    try {
+      const { base64, mediaType } = await resizeImage(file, 1500)
+
+      const res = await fetch('/api/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, mediaType }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error ?? 'Extraction failed')
+      }
+
+      setResult(data)
+      setStatus('done')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong')
+      setStatus('error')
+    }
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) handleFile(file)
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main className="min-h-screen bg-zinc-50 px-4 py-10 font-sans">
+      <div className="mx-auto max-w-md space-y-6">
+
+        <div className="text-center">
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-900">snapExpense</h1>
+          <p className="mt-1 text-sm text-zinc-500">Snap a receipt. Get the data.</p>
+        </div>
+
+        {/* Upload button */}
+        <button
+          onClick={() => inputRef.current?.click()}
+          disabled={status === 'loading'}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-zinc-300 bg-white px-4 py-8 text-zinc-500 transition hover:border-zinc-400 hover:text-zinc-700 disabled:opacity-50"
+        >
+          <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <span className="text-sm font-medium">
+            {status === 'loading' ? 'Processing…' : 'Take a photo or choose a file'}
+          </span>
+        </button>
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={handleChange}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
-  );
+
+        {/* Loading spinner */}
+        {status === 'loading' && (
+          <div className="flex flex-col items-center gap-3 py-6">
+            <svg className="h-8 w-8 animate-spin text-zinc-400" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+            </svg>
+            <p className="text-sm text-zinc-400">Reading your receipt…</p>
+          </div>
+        )}
+
+        {/* Error */}
+        {status === 'error' && error && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        {/* Preview thumbnail */}
+        {preview && status !== 'loading' && (
+          <img
+            src={preview}
+            alt="Receipt preview"
+            className="w-full rounded-xl object-contain shadow"
+            style={{ maxHeight: 260 }}
+          />
+        )}
+
+        {/* Result card */}
+        {status === 'done' && result && (
+          <div className="rounded-xl border border-zinc-200 bg-white shadow-sm">
+            <div className="border-b border-zinc-100 px-4 py-3 flex items-center justify-between">
+              <span className="text-sm font-semibold text-zinc-700">Extracted</span>
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                result.confidence === 'high'
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-yellow-100 text-yellow-700'
+              }`}>
+                {result.confidence === 'high' ? 'High confidence' : 'Low confidence — check values'}
+              </span>
+            </div>
+            <dl className="divide-y divide-zinc-100">
+              {[
+                { label: 'Merchant', value: result.merchant },
+                { label: 'Date',     value: result.date },
+                { label: 'Total',    value: result.total != null ? `$${result.total.toFixed(2)}` : null },
+                { label: 'Tax',      value: result.tax  != null ? `$${result.tax.toFixed(2)}`  : null },
+                { label: 'Category', value: result.category },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex items-center justify-between px-4 py-3">
+                  <dt className="text-sm text-zinc-500">{label}</dt>
+                  <dd className="text-sm font-medium text-zinc-900">
+                    {value ?? <span className="text-zinc-300">—</span>}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        )}
+
+      </div>
+    </main>
+  )
 }
