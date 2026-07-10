@@ -44,6 +44,17 @@ export default function Home() {
   async function handleFile(file: File) {
     setError(null)
     setResult(null)
+    setPreview(null)
+
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+    if (!allowed.includes(file.type)) {
+      setStatus('error')
+      setError(
+        'HEIC/HEIF photos aren\'t supported by the AI vision model. To fix this on iPhone: go to Settings → Camera → Formats → Most Compatible. This makes your camera shoot JPEG instead.'
+      )
+      return
+    }
+
     setPreview(URL.createObjectURL(file))
     setStatus('loading')
 
