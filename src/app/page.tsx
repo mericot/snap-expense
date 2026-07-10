@@ -1,7 +1,6 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import heic2any from 'heic2any'
 
 type ExtractedExpense = {
   merchant: string | null
@@ -51,22 +50,27 @@ export default function Home() {
     let file = rawFile
 
     // Convert HEIC/HEIF to JPEG transparently
-    if (
+    const isHeic =
       rawFile.type === 'image/heic' ||
       rawFile.type === 'image/heif' ||
       rawFile.name.toLowerCase().endsWith('.heic') ||
       rawFile.name.toLowerCase().endsWith('.heif')
-    ) {
+
+    if (isHeic) {
       try {
-        const converted = await heic2any({ blob: rawFile, toType: 'image/jpeg', quality: 0.9 })
+        const heic2any = (await import('heic2any')).default
+        const result = await heic2any({ blob: rawFile, toType: 'image/jpeg', quality: 0.9 })
+        // heic2any returns Blob or Blob[] — always take the first blob
+        const blob = Array.isArray(result) ? result[0] : result
         file = new File(
-          [converted as Blob],
+          [blob],
           rawFile.name.replace(/\.hei[cf]$/i, '.jpg'),
           { type: 'image/jpeg' }
         )
-      } catch {
+      } catch (err) {
+        console.error('[heic2any]', err)
         setStatus('error')
-        setError('Could not convert HEIC photo. Try exporting it as JPEG first.')
+        setError('Could not convert HEIC photo. Please try again or use a JPEG image.')
         return
       }
     }
