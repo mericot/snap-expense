@@ -1,8 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { CATEGORIES } from '@/lib/categories'
+import sharp from 'sharp'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+const HEIC_TYPES = ['image/heic', 'image/heif']
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,6 +13,20 @@ export async function POST(req: NextRequest) {
 
     if (!imageBase64 || !mediaType) {
       return NextResponse.json({ error: 'Missing imageBase64 or mediaType' }, { status: 400 })
+    }
+
+    let finalBase64 = imageBase64
+    let finalMediaType = mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+
+    // Convert HEIC/HEIF to JPEG server-side using sharp
+    if (HEIC_TYPES.includes(mediaType)) {
+      const inputBuffer = Buffer.from(imageBase64, 'base64')
+      const jpegBuffer = await sharp(inputBuffer)
+        .resize({ width: 1500, height: 1500, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 88 })
+        .toBuffer()
+      finalBase64 = jpegBuffer.toString('base64')
+      finalMediaType = 'image/jpeg'
     }
 
     const message = await anthropic.messages.create({
@@ -21,7 +38,7 @@ export async function POST(req: NextRequest) {
           content: [
             {
               type: 'image',
-              source: { type: 'base64', media_type: mediaType, data: imageBase64 },
+              source: { type: 'base64', media_type: finalMediaType, data: finalBase64 },
             },
             {
               type: 'text',

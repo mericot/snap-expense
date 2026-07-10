@@ -11,6 +11,18 @@ type ExtractedExpense = {
   confidence: 'high' | 'low'
 }
 
+const HEIC_TYPES = ['image/heic', 'image/heif']
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', ...HEIC_TYPES]
+
+function isHeic(file: File): boolean {
+  return (
+    HEIC_TYPES.includes(file.type) ||
+    file.name.toLowerCase().endsWith('.heic') ||
+    file.name.toLowerCase().endsWith('.heif')
+  )
+}
+
+// Resize via canvas — only works for browser-decodable formats (not HEIC)
 function resizeImage(file: File, maxPx: number): Promise<{ base64: string; mediaType: string }> {
   return new Promise((resolve, reject) => {
     const img = new Image()
@@ -24,13 +36,23 @@ function resizeImage(file: File, maxPx: number): Promise<{ base64: string; media
       canvas.height = Math.round(height * scale)
       canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
-      resolve({
-        base64: dataUrl.split(',')[1],
-        mediaType: 'image/jpeg',
-      })
+      resolve({ base64: dataUrl.split(',')[1], mediaType: 'image/jpeg' })
     }
     img.onerror = reject
     img.src = url
+  })
+}
+
+// Read file directly to base64 — used for HEIC (server handles conversion)
+function readToBase64(file: File): Promise<{ base64: string; mediaType: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      resolve({ base64: dataUrl.split(',')[1], mediaType: file.type || 'image/heic' })
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
   })
 }
 
@@ -41,52 +63,29 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
 
-  async function handleFile(rawFile: File) {
+  async function handleFile(file: File) {
     setError(null)
     setResult(null)
     setPreview(null)
     setStatus('loading')
 
-    let file = rawFile
+    const heic = isHeic(file)
 
-    // Convert HEIC/HEIF to JPEG transparently
-    const isHeic =
-      rawFile.type === 'image/heic' ||
-      rawFile.type === 'image/heif' ||
-      rawFile.name.toLowerCase().endsWith('.heic') ||
-      rawFile.name.toLowerCase().endsWith('.heif')
-
-    if (isHeic) {
-      try {
-        const heic2any = (await import('heic2any')).default
-        const result = await heic2any({ blob: rawFile, toType: 'image/jpeg', quality: 0.9 })
-        // heic2any returns Blob or Blob[] — always take the first blob
-        const blob = Array.isArray(result) ? result[0] : result
-        file = new File(
-          [blob],
-          rawFile.name.replace(/\.hei[cf]$/i, '.jpg'),
-          { type: 'image/jpeg' }
-        )
-      } catch (err) {
-        console.error('[heic2any]', err)
-        setStatus('error')
-        setError('Could not convert HEIC photo. Please try again or use a JPEG image.')
-        return
-      }
-    }
-
-    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
-    if (!allowed.includes(file.type)) {
+    if (!heic && !ALLOWED_TYPES.includes(file.type)) {
       setStatus('error')
-      setError(`Unsupported file type (${file.type || 'unknown'}). Please use JPEG, PNG, or WebP.`)
+      setError(`Unsupported file type (${file.type || 'unknown'}). Please use JPEG, PNG, WebP, or HEIC.`)
       return
     }
 
-    setPreview(URL.createObjectURL(file))
-
+    // HEIC preview won't render in browser — show a placeholder instead
+    if (!heic) setPreview(URL.createObjectURL(file))
 
     try {
-      const { base64, mediaType } = await resizeImage(file, 1500)
+      // HEIC: send raw to server (sharp converts it there)
+      // Everything else: resize client-side first
+      const { base64, mediaType } = heic
+        ? await readToBase64(file)
+        : await resizeImage(file, 1500)
 
       const res = await fetch('/api/extract', {
         method: 'POST',
@@ -95,10 +94,7 @@ export default function Home() {
       })
 
       const data = await res.json()
-
-      if (!res.ok) {
-        throw new Error(data.error ?? 'Extraction failed')
-      }
+      if (!res.ok) throw new Error(data.error ?? 'Extraction failed')
 
       setResult(data)
       setStatus('done')
@@ -122,7 +118,6 @@ export default function Home() {
           <p className="mt-1 text-sm text-zinc-500">Snap a receipt. Get the data.</p>
         </div>
 
-        {/* Upload button */}
         <button
           onClick={() => inputRef.current?.click()}
           disabled={status === 'loading'}
@@ -146,25 +141,22 @@ export default function Home() {
           onChange={handleChange}
         />
 
-        {/* Loading spinner */}
         {status === 'loading' && (
           <div className="flex flex-col items-center gap-3 py-6">
             <svg className="h-8 w-8 animate-spin text-zinc-400" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
             </svg>
-            <p className="text-sm text-zinc-400">Converting and reading your receipt…</p>
+            <p className="text-sm text-zinc-400">Reading your receipt…</p>
           </div>
         )}
 
-        {/* Error */}
         {status === 'error' && error && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
           </div>
         )}
 
-        {/* Preview thumbnail */}
         {preview && status !== 'loading' && (
           <img
             src={preview}
@@ -174,7 +166,6 @@ export default function Home() {
           />
         )}
 
-        {/* Result card */}
         {status === 'done' && result && (
           <div className="rounded-xl border border-zinc-200 bg-white shadow-sm">
             <div className="border-b border-zinc-100 px-4 py-3 flex items-center justify-between">
