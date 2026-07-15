@@ -13,5 +13,4 @@ export type Expense = {
   total: number
   tax: number | null
   category: string | null
-  user_id: string
 }
