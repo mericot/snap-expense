@@ -4,6 +4,7 @@
 create table if not exists expenses (
   id          uuid primary key default gen_random_uuid(),
   created_at  timestamptz not null default now(),
+  user_id     uuid not null references auth.users(id) on delete cascade,
   merchant    text not null,
   date        date not null,
   total       numeric(10, 2) not null,
@@ -14,8 +15,8 @@ create table if not exists expenses (
 -- Enable Row Level Security
 alter table expenses enable row level security;
 
--- Allow all operations (tighten later with auth)
-create policy "Allow all" on expenses
+-- Each user can only see and modify their own rows
+create policy "Users manage own expenses" on expenses
   for all
-  using (true)
-  with check (true);
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());

@@ -319,6 +319,7 @@ function App({ session }: { session: Session }) {
     }
     setStatus('saving')
     const { error: dbError } = await supabase.from('expenses').insert({
+      user_id: session.user.id,
       merchant: result.merchant,
       date: result.date,
       total: result.total,
