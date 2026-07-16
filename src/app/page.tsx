@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useRef, useState, useEffect, useCallback } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import { supabase, type Expense } from '@/lib/supabase'
 import { CATEGORIES } from '@/lib/categories'
 
@@ -59,6 +60,86 @@ function readToBase64(file: File): Promise<{ base64: string; mediaType: string }
 }
 
 function fmt(n: number) { return `$${Number(n).toFixed(2)}` }
+
+// ── Login screen ──────────────────────────────────────────────────────────────
+
+function LoginScreen() {
+  const [email, setEmail] = useState('')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'sent' | 'error'>('idle')
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSend(e: React.FormEvent) {
+    e.preventDefault()
+    setStatus('loading')
+    setError(null)
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+    })
+    if (error) {
+      setError(error.message)
+      setStatus('error')
+    } else {
+      setStatus('sent')
+    }
+  }
+
+  if (status === 'sent') {
+    return (
+      <main className="min-h-screen bg-zinc-50 flex items-center justify-center px-4">
+        <div className="max-w-sm w-full text-center space-y-4">
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-900">snapExpense</h1>
+          <div className="rounded-xl border border-zinc-200 bg-white px-6 py-8 shadow-sm space-y-3">
+            <p className="text-sm font-medium text-zinc-900">Check your email</p>
+            <p className="text-sm text-zinc-500">
+              We sent a magic link to <strong>{email}</strong>. Click it to sign in.
+            </p>
+            <button
+              onClick={() => setStatus('idle')}
+              className="text-xs text-zinc-400 underline hover:text-zinc-600"
+            >
+              Use a different email
+            </button>
+          </div>
+        </div>
+      </main>
+    )
+  }
+
+  return (
+    <main className="min-h-screen bg-zinc-50 flex items-center justify-center px-4">
+      <div className="max-w-sm w-full space-y-6">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-900">snapExpense</h1>
+          <p className="mt-1 text-sm text-zinc-500">Sign in to manage your receipts</p>
+        </div>
+        <form onSubmit={handleSend} className="rounded-xl border border-zinc-200 bg-white px-6 py-8 shadow-sm space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1.5">Email</label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+            />
+          </div>
+          {status === 'error' && error && (
+            <p className="text-sm text-red-600">{error}</p>
+          )}
+          <button
+            type="submit"
+            disabled={status === 'loading'}
+            className="w-full rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+          >
+            {status === 'loading' ? 'Sending…' : 'Send magic link'}
+          </button>
+        </form>
+      </div>
+    </main>
+  )
+}
 
 // ── Inline editable row ─────────────────────────────────────────────────────
 
@@ -168,9 +249,9 @@ function ExpenseRow({ expense, onSave, onDelete }: {
   )
 }
 
-// ── Main page ────────────────────────────────────────────────────────────────
+// ── App (authenticated) ───────────────────────────────────────────────────────
 
-export default function Home() {
+function App({ session }: { session: Session }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'saving' | 'saved' | 'error'>('idle')
   const [result, setResult] = useState<ExtractedExpense | null>(null)
@@ -290,9 +371,17 @@ export default function Home() {
     <main className="min-h-screen bg-zinc-50 px-4 py-10 font-sans">
       <div className="mx-auto max-w-3xl space-y-8">
 
-        <div className="text-center">
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900">snapExpense</h1>
-          <p className="mt-1 text-sm text-zinc-500">Snap a receipt. Get the data.</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-zinc-900">snapExpense</h1>
+            <p className="mt-0.5 text-xs text-zinc-400">{session.user.email}</p>
+          </div>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 shadow-sm hover:bg-zinc-50"
+          >
+            Sign out
+          </button>
         </div>
 
         {!reviewing && status !== 'saved' && (
@@ -429,4 +518,23 @@ export default function Home() {
       </div>
     </main>
   )
+}
+
+// ── Root ──────────────────────────────────────────────────────────────────────
+
+export default function Home() {
+  // undefined = still loading, null = signed out, Session = signed in
+  const [session, setSession] = useState<Session | null | undefined>(undefined)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session))
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
+  if (session === undefined) return null // brief loading
+  if (session === null) return <LoginScreen />
+  return <App session={session} />
 }
