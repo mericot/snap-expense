@@ -77,7 +77,8 @@ function LoginScreen() {
       options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
     })
     if (error) {
-      setError(error.message || error.name || JSON.stringify(error) || 'Unknown error — check Supabase config')
+      console.error('Supabase signInWithOtp error:', error, JSON.stringify(error, Object.getOwnPropertyNames(error)))
+      setError(error.message || (error as any).status || error.name || 'Unknown error')
       setStatus('error')
     } else {
       setStatus('sent')
