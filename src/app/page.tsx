@@ -77,7 +77,7 @@ function LoginScreen() {
       options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
     })
     if (error) {
-      setError(error.message)
+      setError(error.message || error.name || JSON.stringify(error) || 'Unknown error — check Supabase config')
       setStatus('error')
     } else {
       setStatus('sent')
