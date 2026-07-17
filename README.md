@@ -1,255 +1,120 @@
-# snapExpense
+# SnapExpense
 
-A receipt scanning expense tracker. Snap a photo of a receipt, Claude AI extracts the details, and it saves to a persistent database you can filter and export to CSV.
+**Snap a photo of a receipt. Get clean, private, exportable expense data.**
 
----
+Live at **[snap-expenses.com](https://snap-expenses.com)**
 
-## Tech Stack
+SnapExpense is a multi-tenant expense tracker for freelancers. Take a photo of
+a receipt and Claude's vision model extracts the merchant, date, total, tax,
+and category into structured data — no manual entry. Every user's data is
+isolated with database-level access control.
 
-| Tool | Role |
-|------|------|
-| **Next.js 15 (App Router)** | Full-stack framework — UI and API routes in one project |
-| **TypeScript** | Type safety across the entire codebase |
-| **Tailwind CSS** | Utility-first styling |
-| **Anthropic Claude Haiku** | Vision AI — reads receipt images and extracts structured data |
-| **Supabase** | Postgres database (free tier) — stores all expenses persistently |
-| **Vercel** | Deployment — live public URL |
-| **CSV Export** | Client-side export, no server needed |
+![SnapExpense — desktop view](docs/screenshot1.png)
+![SnapExpense — mobile view](docs/screenshot2.png)
 
----
+## Features
 
-## Project Structure
+- 📸 **Receipt capture** — camera on mobile, file upload on desktop
+- 🤖 **AI extraction** — Claude Haiku 4.5 (vision) reads the receipt and
+  returns strict JSON: merchant, date, total, tax, category, confidence
+- ✅ **Review before save** — extracted data is confirmed by the user, never
+  blindly written
+- 🔐 **Private by design** — magic-link auth, per-user data ownership, and
+  Postgres Row Level Security enforced in the database itself
+- 📊 **Running totals** by category
+- 📥 **CSV export** for bookkeeping and tax prep
+
+## Architecture
 
 ```
-snap-expense/
-├── src/
-│   ├── app/
-│   │   ├── page.tsx                   # Main UI (upload + table + export)
-│   │   ├── layout.tsx                 # Root layout
-│   │   ├── globals.css                # Tailwind base styles
-│   │   └── api/
-│   │       └── extract/
-│   │           └── route.ts           # POST /api/extract — vision extraction
-│   └── lib/
-│       ├── supabase.ts                # Supabase client + Expense type
-│       └── categories.ts             # Fixed category list
-├── supabase/
-│   └── schema.sql                     # SQL to create the expenses table
-├── test-extract.mjs                   # CLI test script for /api/extract
-├── .env.example                       # Template for required env vars
-├── .env.local                         # Your secrets (gitignored)
-└── vercel.json                        # Vercel deployment config
+┌──────────┐   photo (base64,      ┌─────────────────┐
+│  Next.js │ ─── resized client- ─▶│  /api/extract    │
+│  (Vercel)│      side)            │  Claude Haiku 4.5│
+└────┬─────┘                       │  (vision → JSON) │
+     │                             └────────┬─────────┘
+     │  user reviews + saves               strict JSON
+     ▼                                      │
+┌──────────────────────────────────────────▼──┐
+│ Supabase (Postgres)                          │
+│ • expenses table, user_id FK → auth.users    │
+│ • RLS: user_id = auth.uid() on all 4 verbs   │
+│ • Auth: email magic links (SMTP via Resend)  │
+└──────────────────────────────────────────────┘
 ```
 
----
+**Stack:** Next.js (App Router, TypeScript) · Anthropic API (Claude Haiku 4.5
+vision) · Supabase (Postgres, Auth, RLS) · Resend (transactional email) ·
+Vercel (hosting) · Cloudflare (DNS)
 
-## How It Works
+### Why these choices
 
-### 1. Receipt Upload
-The user picks or photographs a receipt. The image is sent as `multipart/form-data` to `/api/extract`.
+- **Vision extraction over OCR-plus-parsing:** one model call returns typed
+  JSON with a confidence flag; illegible fields come back `null` rather than
+  guessed. Cost is ~$0.0025 per receipt.
+- **RLS over app-level filtering:** access rules live in the database, so
+  they hold even against direct API calls that bypass the UI. App-level
+  `WHERE` clauses alone are cosmetic.
+- **Magic links over passwords:** no credentials to store or leak; the email
+  inbox is the authenticator.
 
-### 2. AI Extraction — `POST /api/extract`
-`src/app/api/extract/route.ts`
+## Security model
 
-Receives the image, sends it to `claude-haiku-4-5-20251001` with a strict prompt. Returns JSON only — no prose, no markdown:
+Multi-tenancy is enforced in three layers, bottom-up:
 
-```json
-{
-  "merchant": "Whole Foods",
-  "date": "2026-06-29",
-  "total": 47.82,
-  "tax": 3.21,
-  "category": "Meals",
-  "confidence": "high"
-}
-```
+1. **Identity** — Supabase Auth magic links; every request carries a verified
+   user ID.
+2. **Ownership** — every expense row is stamped with `user_id`
+   (foreign-keyed to `auth.users`, default `auth.uid()`).
+3. **Enforcement** — Row Level Security policies on select / insert / update
+   / delete, all scoped to `user_id = auth.uid()`. Verified with a
+   two-account test: a second user sees an empty list, and unauthenticated
+   API queries return nothing.
 
-**Extraction rules (enforced in the prompt):**
-- Returns JSON only — nothing before or after the object
-- `null` for any field that isn't legible on the receipt
-- `confidence` is `"low"` if any field is null
-- `category` is always from the fixed list — never invented
-- `total` is never guessed — `null` beats a wrong number
-
-### 3. Categories
-`src/lib/categories.ts`
-
-Fixed list used in both the prompt and enforced server-side:
-`Software`, `Travel`, `Meals`, `Office`, `Hardware`, `Other`
-
-If Claude returns anything outside this list, the route resets it to `Other`.
-
-### 4. Database — Supabase
-`src/lib/supabase.ts` + `supabase/schema.sql`
-
-**`expenses` table:**
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | uuid | Auto-generated primary key |
-| `created_at` | timestamptz | Row insert timestamp |
-| `merchant` | text | Store or restaurant name |
-| `date` | date | Date printed on the receipt |
-| `total` | numeric(10,2) | Receipt total |
-| `tax` | numeric(10,2) | Tax amount (nullable) |
-| `category` | text | One of the fixed category list |
-
-Row Level Security is enabled with an open policy — tighten this when you add auth.
-
-### 5. CSV Export
-Done entirely client-side — converts the expense list to a CSV string and triggers a browser download. No server call needed.
-
----
-
-## Environment Variables
+## Running locally
 
 ```bash
-cp .env.example .env.local
-```
-
-Fill in `.env.local`:
-
-| Variable | Where to get it |
-|----------|----------------|
-| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) → API Keys |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API → Project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → `anon` / `publishable` key |
-
-**Never commit `.env.local`.** It is gitignored.
-
----
-
-## Database Setup
-
-1. Create a free project at [supabase.com](https://supabase.com)
-2. Go to **SQL Editor** in the Supabase dashboard
-3. Paste and run:
-
-```sql
-create table if not exists expenses (
-  id          uuid primary key default gen_random_uuid(),
-  created_at  timestamptz not null default now(),
-  merchant    text not null,
-  date        date not null,
-  total       numeric(10, 2) not null,
-  tax         numeric(10, 2),
-  category    text
-);
-
-alter table expenses enable row level security;
-
-create policy "Allow all" on expenses
-  for all
-  using (true)
-  with check (true);
-```
-
----
-
-## Local Development
-
-```bash
+git clone https://github.com/mericot/snap-expense.git
+cd snap-expense
 npm install
-cp .env.example .env.local   # then fill in your keys
+cp .env.example .env.local   # fill in the three keys below
 npm run dev
 ```
 
-App runs at [http://localhost:3000](http://localhost:3000).
+| Env var | Purpose |
+|---|---|
+| `ANTHROPIC_API_KEY` | Claude API — vision extraction |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (RLS makes this safe to expose) |
 
----
+Database schema and RLS policies live in [`db/`](./db) — run them in the
+Supabase SQL editor to reproduce the setup.
 
-## Testing
+## What I learned building this
 
-### Test 1 — Database connectivity
+This was my first end-to-end AI product — built with Claude Code, shipped in
+stages, and debugged in production. The full engineering journal is in
+[NOTES.md](./NOTES.md). Highlights:
 
-Confirms Supabase insert, read, and delete all work:
+- **Read the logs before theorizing.** A magic-link 500 turned out to be
+  SMTP error 535 (bad credential), then 550 (unverified sender domain) —
+  each log line named the exact fix, faster than any guessing.
+- **"Sender" vs "recipient" in email auth.** A 550 mentioning `icloud.com`
+  on mail sent *to* Gmail revealed the misconfigured field was the From
+  address — domains you don't own can't be verified senders.
+- **DNS is layered.** Registrar → nameservers → records → routing. "It
+  doesn't exist," "it isn't mine," and "it isn't configured" are three
+  different states, and I hit all three before learning a domain resolving
+  to parking IPs means *someone else* owns it.
+- **Security belongs in the lowest layer that can't be bypassed.** Auth
+  alone isn't privacy; ownership columns alone aren't enforcement. RLS in
+  Postgres is what makes the wall real.
 
-```bash
-node test-db.mjs
-```
+## Roadmap
 
-Expected output:
-```
-1. Inserting test expense...
-   Inserted: { id: '...', merchant: 'Test Coffee Shop', ... }
-2. Reading it back...
-   Fetched: { id: '...', merchant: 'Test Coffee Shop', ... }
-3. Deleting test row...
-   Deleted successfully.
-All tests passed — Supabase is working correctly.
-```
+- [ ] Edit/correct a saved expense
+- [ ] Monthly summaries and tax-category reports
+- [ ] Freemium tier with Stripe (free up to N receipts/month)
 
-### Test 2 — Vision extraction (requires dev server running)
+## License
 
-**Step 1** — start the dev server in one terminal:
-```bash
-npm run dev
-```
-
-**Step 2** — in a second terminal, send a receipt image:
-```bash
-node test-extract.mjs path/to/receipt.jpg
-```
-
-Supported formats: `.jpg`, `.jpeg`, `.png`, `.webp`
-
-Expected output:
-```json
-{
-  "merchant": "Starbucks",
-  "date": "2026-06-29",
-  "total": 6.75,
-  "tax": 0.54,
-  "category": "Meals",
-  "confidence": "high"
-}
-```
-
-**What to check:**
-- `merchant`, `date`, `total` match what's on the receipt
-- `category` is one of: `Software`, `Travel`, `Meals`, `Office`, `Hardware`, `Other`
-- `confidence` is `"high"` for a clear receipt, `"low"` if anything is illegible
-- Any unreadable field comes back as `null` — not a guess
-
-### Test 3 — Manual API test with curl
-
-With the dev server running:
-
-```bash
-curl -X POST http://localhost:3000/api/extract \
-  -F "receipt=@path/to/receipt.jpg" | jq
-```
-
----
-
-## Deploying to Vercel
-
-```bash
-npm install -g vercel
-vercel
-```
-
-After the first deploy, add your three environment variables in the Vercel dashboard under **Settings → Environment Variables**. Every `git push` to `main` triggers an automatic redeploy.
-
----
-
-## Build Status
-
-| Feature | Status |
-|---------|--------|
-| Project scaffold (Next.js + Tailwind + TypeScript) | Done |
-| Supabase schema + connectivity | Done |
-| `/api/extract` — Claude vision route | Done |
-| Category enforcement | Done |
-| UI — upload + table + totals | In progress |
-| CSV export | Pending |
-| Vercel deploy | Pending |
-
----
-
-## Roadmap (after ship)
-
-- Auth — Supabase Auth so each user sees only their own expenses
-- Edit/correct flow — fix wrong extractions instead of delete and re-snap
-- Image storage — keep a copy of the receipt in Supabase Storage
-- Monthly summary and charts
+MIT
