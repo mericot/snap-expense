@@ -9,8 +9,8 @@ a receipt and Claude's vision model extracts the merchant, date, total, tax,
 and category into structured data — no manual entry. Every user's data is
 isolated with database-level access control.
 
-![SnapExpense — desktop view](docs/screenshot1.png)
-![SnapExpense — mobile view](docs/screenshot2.png)
+![SnapExpense — desktop view](docs/screenshot1_page-0001.png)
+![SnapExpense — mobile view](docs/screenshot2_page-0001.png)
 
 ## Features
 
