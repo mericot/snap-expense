@@ -9,8 +9,14 @@ a receipt and Claude's vision model extracts the merchant, date, total, tax,
 and category into structured data — no manual entry. Every user's data is
 isolated with database-level access control.
 
-![SnapExpense — desktop view](docs/screenshot1_page-0001.png)
-![SnapExpense — mobile view](docs/screenshot2_page-0001.png)
+<p align="center">
+  <img src="docs/screenshot1_page-0001.png" alt="Upload screen" width="280">
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshot2_page-0001.png" alt="Receipt scan with AI extraction" width="280">
+</p>
+<p align="center">
+  <em>Upload a receipt &nbsp;→&nbsp; AI extracts the details</em>
+</p>
 
 ## Features
 
