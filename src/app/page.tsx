@@ -72,9 +72,10 @@ function LoginScreen() {
     e.preventDefault()
     setStatus('loading')
     setError(null)
+    const redirectTo = `${window.location.origin}/auth/callback`
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+      options: { emailRedirectTo: redirectTo },
     })
     if (error) {
       console.error('Supabase signInWithOtp error:', error, JSON.stringify(error, Object.getOwnPropertyNames(error)))
@@ -250,6 +251,117 @@ function ExpenseRow({ expense, onSave, onDelete }: {
   )
 }
 
+// ── Mobile expense card ──────────────────────────────────────────────────────
+
+function MobileExpenseCard({ expense, onSave, onDelete }: {
+  expense: Expense
+  onSave: (id: string, draft: EditDraft) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [draft, setDraft] = useState<EditDraft>({
+    merchant: expense.merchant,
+    date: expense.date,
+    total: String(expense.total),
+    tax: expense.tax != null ? String(expense.tax) : '',
+    category: expense.category ?? '',
+  })
+
+  function set(field: keyof EditDraft, value: string) {
+    setDraft(d => ({ ...d, [field]: value }))
+  }
+
+  async function save() {
+    setSaving(true)
+    await onSave(expense.id, draft)
+    setSaving(false)
+    setEditing(false)
+  }
+
+  function cancel() {
+    setDraft({
+      merchant: expense.merchant,
+      date: expense.date,
+      total: String(expense.total),
+      tax: expense.tax != null ? String(expense.tax) : '',
+      category: expense.category ?? '',
+    })
+    setEditing(false)
+  }
+
+  const inputCls = 'w-full min-w-0 box-border rounded-lg border border-zinc-300 px-3 py-2.5 text-sm focus:border-zinc-500 focus:outline-none'
+
+  if (editing) {
+    return (
+      <div className="rounded-xl border border-zinc-300 bg-zinc-50 px-4 py-4 shadow-sm space-y-3 overflow-hidden">
+        <div>
+          <label className="block text-xs font-medium text-zinc-500 mb-1">Merchant</label>
+          <input type="text" value={draft.merchant} onChange={e => set('merchant', e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-500 mb-1">Date</label>
+          <input type="date" value={draft.date} onChange={e => set('date', e.target.value)} className={`${inputCls} max-w-[10rem]`} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-500 mb-1">Category</label>
+          <select value={draft.category} onChange={e => set('category', e.target.value)} className={inputCls}>
+            <option value="">—</option>
+            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-zinc-500 mb-1">Total</label>
+            <input type="number" value={draft.total} onChange={e => set('total', e.target.value)} className={inputCls} step="0.01" placeholder="0.00" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-500 mb-1">Tax</label>
+            <input type="number" value={draft.tax} onChange={e => set('tax', e.target.value)} className={inputCls} step="0.01" placeholder="0.00" />
+          </div>
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button onClick={save} disabled={saving} className="flex-1 min-h-[44px] rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white active:bg-zinc-700 disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <button onClick={cancel} className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-600 active:bg-zinc-50">
+            Cancel
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-zinc-900 truncate">{expense.merchant}</p>
+          <p className="mt-0.5 text-xs text-zinc-500">{expense.date}{expense.category ? ` · ${expense.category}` : ''}</p>
+        </div>
+        <p className="text-sm font-semibold text-zinc-900 shrink-0">{fmt(expense.total)}</p>
+      </div>
+      {expense.tax != null && (
+        <p className="mt-1 text-xs text-zinc-400">Tax: {fmt(expense.tax)}</p>
+      )}
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          onClick={() => setEditing(true)}
+          className="min-h-[44px] min-w-[44px] rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-600 active:bg-zinc-200"
+        >
+          Edit
+        </button>
+        <button
+          onClick={() => onDelete(expense.id)}
+          className="min-h-[44px] min-w-[44px] rounded-lg bg-red-50 px-4 py-2 text-sm font-medium text-red-600 active:bg-red-100"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── App (authenticated) ───────────────────────────────────────────────────────
 
 function App({ session }: { session: Session }) {
@@ -344,6 +456,7 @@ function App({ session }: { session: Session }) {
   }
 
   async function handleDelete(id: string) {
+    if (!window.confirm('Delete this expense? This cannot be undone.')) return
     await supabase.from('expenses').delete().eq('id', id)
     await loadExpenses()
   }
@@ -480,18 +593,27 @@ function App({ session }: { session: Session }) {
         {expenses.length > 0 && (
           <div>
             <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">All Expenses</h2>
-            <button
-              onClick={exportCSV}
-              className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 shadow-sm transition hover:bg-zinc-50"
-            >
-              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Export CSV
-            </button>
-          </div>
-            <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">All Expenses</h2>
+              <button
+                onClick={exportCSV}
+                className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 shadow-sm transition hover:bg-zinc-50"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export CSV
+              </button>
+            </div>
+
+            {/* Mobile: stacked cards */}
+            <div className="space-y-3 sm:hidden">
+              {expenses.map(e => (
+                <MobileExpenseCard key={e.id} expense={e} onSave={handleUpdate} onDelete={handleDelete} />
+              ))}
+            </div>
+
+            {/* Desktop: table */}
+            <div className="hidden sm:block overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-zinc-100 text-left text-xs text-zinc-400">
