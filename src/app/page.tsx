@@ -94,7 +94,7 @@ function LoginScreen() {
           <div className="rounded-xl border border-zinc-200 bg-white px-6 py-8 shadow-sm space-y-3">
             <p className="text-sm font-medium text-zinc-900">Check your email</p>
             <p className="text-sm text-zinc-500">
-              We sent a magic link to <strong>{email}</strong>. Click it to sign in.
+              We sent a magic link to <strong>{email}</strong>. Click it to sign in. If you don't see it, check your spam or junk folder.
             </p>
             <button
               onClick={() => setStatus('idle')}
