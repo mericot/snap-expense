@@ -9,12 +9,25 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const HEIC_TYPES = ['image/heic', 'image/heif']
 
+const RATE_LIMIT_PER_HOUR = 20
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createSupabaseServerClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { data: allowed, error: rlError } = await supabase.rpc('check_rate_limit', {
+      p_user_id: user.id,
+      p_max_requests: RATE_LIMIT_PER_HOUR,
+    })
+    if (rlError || !allowed) {
+      return NextResponse.json(
+        { error: `Rate limit exceeded. Maximum ${RATE_LIMIT_PER_HOUR} extractions per hour.` },
+        { status: 429 }
+      )
     }
 
     const { imageBase64, mediaType } = await req.json()
