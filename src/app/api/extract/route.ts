@@ -8,11 +8,18 @@ import heicConvert from 'heic-convert'
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const HEIC_TYPES = ['image/heic', 'image/heif']
+const ALLOWED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', ...HEIC_TYPES]
 
 const RATE_LIMIT_PER_HOUR = 20
+const MAX_BODY_BYTES = 10 * 1024 * 1024 // 10 MB
 
 export async function POST(req: NextRequest) {
   try {
+    const contentLength = parseInt(req.headers.get('content-length') ?? '', 10)
+    if (contentLength > MAX_BODY_BYTES) {
+      return NextResponse.json({ error: 'Payload too large. Maximum 10 MB.' }, { status: 413 })
+    }
+
     const supabase = await createSupabaseServerClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) {
@@ -30,10 +37,23 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const { imageBase64, mediaType } = await req.json()
+    const bodyText = await req.text()
+    if (bodyText.length > MAX_BODY_BYTES) {
+      return NextResponse.json({ error: 'Payload too large. Maximum 10 MB.' }, { status: 413 })
+    }
+
+    let parsed
+    try { parsed = JSON.parse(bodyText) } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
+    const { imageBase64, mediaType } = parsed
 
     if (!imageBase64 || !mediaType) {
       return NextResponse.json({ error: 'Missing imageBase64 or mediaType' }, { status: 400 })
+    }
+
+    if (!ALLOWED_MEDIA_TYPES.includes(mediaType)) {
+      return NextResponse.json({ error: 'Unsupported media type' }, { status: 400 })
     }
 
     let finalBase64 = imageBase64
