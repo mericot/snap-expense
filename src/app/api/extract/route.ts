@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { CATEGORIES } from '@/lib/categories'
+import { createSupabaseServerClient } from '@/lib/supabase-server'
 import sharp from 'sharp'
 import heicConvert from 'heic-convert'
 
@@ -10,6 +11,12 @@ const HEIC_TYPES = ['image/heic', 'image/heif']
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createSupabaseServerClient()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const { imageBase64, mediaType } = await req.json()
 
     if (!imageBase64 || !mediaType) {
