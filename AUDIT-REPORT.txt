@@ -1,0 +1,105 @@
+SnapExpense Pre-Launch Health & Security Audit
+================================================
+Date: 2026-07-27
+
+
+FUNCTIONALITY
+─────────────
+
+[PASS] Receipt upload → vision extraction → save pipeline works end-to-end
+       Client reads image, resizes/converts, POSTs base64 to /api/extract, Claude Haiku extracts JSON, user reviews and saves to Supabase.
+
+[PASS] Handles a corrupted/unreadable image gracefully (no crash, clear error)
+       The API route wraps everything in try/catch returning a 500 JSON error; the client catches non-ok responses and displays the error message.
+
+[FLAG] Handles a Claude API timeout/failure gracefully (no crash, clear error)
+       The catch block returns a generic 500 "Internal server error" — no crash, but the user sees a vague message with no indication to retry. No explicit timeout is set on the Anthropic SDK call, so a hung request could leave the user stuck on "Processing…" indefinitely.
+
+[PASS] Handles malformed/non-JSON extraction output gracefully
+       The route first tries JSON.parse, then falls back to regex-extracting a JSON object from the response, and returns a 422 with the raw text if both fail.
+
+[PASS] Magic-link send works
+       Uses supabase.auth.signInWithOtp with emailRedirectTo pointing to /auth/callback. Errors are surfaced to the user.
+
+[FLAG] Magic-link verify/callback works
+       The /auth/callback page calls exchangeCodeForSession and redirects to /, but the .then() has no .catch() — if the exchange fails (expired, already-used, or malformed code), the promise rejects silently and the user is left on a "Signing you in…" screen forever.
+
+[PASS] Session persists across page reloads
+       The root component calls supabase.auth.getSession() on mount and subscribes to onAuthStateChange, so sessions are restored from Supabase's cookie/localStorage token store.
+
+[PASS] Logout actually clears the session
+       Sign-out calls supabase.auth.signOut(), which clears the local session. The onAuthStateChange listener sets session to null, showing the login screen.
+
+[FAIL] An expired magic link fails gracefully (clear message, not a crash)
+       The auth callback has no error handling on exchangeCodeForSession. An expired or already-used link will reject the promise, leaving the user on a blank "Signing you in…" screen with no error message and no way to recover except manually navigating away.
+
+[PASS] A user who's already logged in clicking an old magic link doesn't break
+       The app re-renders based on auth state. If exchange fails, the existing session is unaffected (Supabase SDK doesn't clear the current session on a failed exchange). If exchange succeeds with a new token, the auth listener updates state normally.
+
+[FAIL] No dead code, unused routes, or leftover debug/test endpoints
+       Found: test-extract.mjs — a standalone dev/test script in the project root that hits /api/extract via localhost. Should be removed or moved to a dev-only directory before launch.
+
+[FLAG] Every env var referenced in code is actually set in Vercel; no env var set in Vercel is unused in code
+       Code references: ANTHROPIC_API_KEY, NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY. Cannot verify Vercel settings from the local codebase — requires manual check in the Vercel dashboard. The .env.example matches these three vars. Verify that all three are set in Vercel production, and that no extra vars are defined there.
+
+
+SECURITY
+────────
+
+[PASS] RLS is enabled on every table
+       Only one table exists (expenses). RLS is enabled via ALTER TABLE expenses ENABLE ROW LEVEL SECURITY in both schema files and rls_policies.sql.
+
+[PASS] For each table with RLS: policies are select/insert/update/delete scoped to user_id = auth.uid()
+       db/rls_policies.sql defines separate policies for SELECT, INSERT, UPDATE, DELETE, all scoped to user_id = auth.uid(). The USING and WITH CHECK clauses are correct.
+
+[FLAG] Enforcement is verified at the DB level, not just assumed
+       The RLS policies are correctly defined in SQL files, but there is no automated test or integration test that verifies cross-user isolation at runtime. Verification requires manually testing an authenticated query as user A against user B's row in the live database. Cannot confirm from source code alone — recommend running a manual verification test before launch.
+
+[PASS] SUPABASE_SERVICE_ROLE_KEY never appears in any client bundle
+       The service role key is never referenced anywhere in the source code (grep returned zero results). The Supabase client uses only NEXT_PUBLIC_SUPABASE_ANON_KEY. No production build output exists to scan, but the key is structurally absent from the codebase.
+
+[PASS] ANTHROPIC_API_KEY never appears in any client bundle
+       ANTHROPIC_API_KEY is only referenced in src/app/api/extract/route.ts — a server-side API route. It does not use the NEXT_PUBLIC_ prefix, so Next.js will not bundle it into client-side code. No production build output exists to scan, but the architecture is correct.
+
+[FAIL] Every API route that touches user data checks for an authenticated session before doing anything
+       /api/extract does NOT check for an authenticated session. Anyone with the URL can POST an image and trigger a Claude API call. While the extracted data is returned to the caller (not saved without the client then calling Supabase with auth), the endpoint is completely open — an unauthenticated attacker can burn through Anthropic API credits at will.
+
+[FAIL] Rate limiting exists on the vision extraction endpoint
+       NONE. No rate limiting of any kind exists anywhere in the codebase. The /api/extract endpoint is open and unauthenticated (see above), making this a real cost/abuse risk — anyone can spam the endpoint and rack up Anthropic API charges.
+
+[FAIL] File upload has a size limit
+       No size limit is enforced. The API route accepts the raw JSON body (which contains the full base64 image) with no size check. Next.js has a default body size limit (~1MB for API routes, ~4MB for App Router routes), but no explicit limit is configured. A large image payload could cause memory pressure or excessive API costs.
+
+[FLAG] File upload validates file type (not just trusting the extension/MIME claimed by the client)
+       The client validates file type against ALLOWED_TYPES using the browser-reported file.type and file extension (for HEIC). However, the server (/api/extract) performs NO validation on the mediaType field — it trusts whatever the client sends. A malicious client could send any string as mediaType. The server does check for HEIC_TYPES for conversion, but passes non-HEIC types directly to the Anthropic API without validation.
+
+[PASS] If uploaded images are stored (not just processed and discarded)
+       Images are NOT stored. They are processed in-memory (base64 → Claude API → JSON extraction → response), then discarded. No Supabase Storage buckets, no file persistence. No access-control concern here.
+
+[PASS] Any user-supplied text is validated/sanitized before storage and display
+       React's JSX rendering auto-escapes all interpolated values, preventing XSS. No dangerouslySetInnerHTML usage anywhere. Supabase client uses parameterized queries (the JS SDK), not raw SQL, preventing SQL injection. Merchant names, categories, and notes are rendered safely.
+
+[FLAG] Dependency vulnerability scan (npm audit)
+       6 high-severity vulnerabilities found:
+       - postcss (3 issues): XSS via unescaped </style> in CSS stringify, arbitrary file read via sourceMappingURL, path traversal in source map loading (GHSA-qx2v-qp2m-jg93, GHSA-6g55-p6wh-862q, GHSA-r28c-9q8g-f849)
+       - sharp (<0.35.0): inherited libvips CVEs (CVE-2026-33327, CVE-2026-33328, CVE-2026-35590, CVE-2026-35591) (GHSA-f88m-g3jw-g9cj)
+       Fix available via npm audit fix --force (will update next to 16.2.12).
+
+
+NEEDS IMMEDIATE ATTENTION
+─────────────────────────
+
+1. FAIL — /api/extract has NO authentication check
+   Anyone can call this endpoint and burn Anthropic API credits. Add session verification before processing.
+
+2. FAIL — No rate limiting on /api/extract
+   Even after adding auth, a compromised or malicious authenticated user could spam the endpoint. Add rate limiting.
+
+3. FAIL — No explicit file/body size limit on /api/extract
+   Large payloads could cause memory issues or excessive API costs. Add an explicit size check.
+
+4. FAIL — Auth callback has no error handling (expired magic link shows blank screen)
+   Add a .catch() to exchangeCodeForSession that shows an error message and a link back to login.
+
+5. FAIL — test-extract.mjs is a leftover dev script in the project root
+   Remove before launch.
