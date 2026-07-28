@@ -1,11 +1,15 @@
-import Anthropic from '@anthropic-ai/sdk'
+import Anthropic, { APIConnectionTimeoutError, RateLimitError, APIError } from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { CATEGORIES } from '@/lib/categories'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import sharp from 'sharp'
 import heicConvert from 'heic-convert'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  timeout: 30_000,
+  maxRetries: 1,
+})
 
 const HEIC_TYPES = ['image/heic', 'image/heif']
 const ALLOWED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', ...HEIC_TYPES]
@@ -122,6 +126,15 @@ Rules:
     return NextResponse.json(extracted)
   } catch (err) {
     console.error('[/api/extract]', err)
+    if (err instanceof APIConnectionTimeoutError) {
+      return NextResponse.json({ error: 'Request timed out. Please try again.' }, { status: 504 })
+    }
+    if (err instanceof RateLimitError) {
+      return NextResponse.json({ error: 'Service is busy. Please wait a moment and try again.' }, { status: 503 })
+    }
+    if (err instanceof APIError) {
+      return NextResponse.json({ error: 'Service temporarily unavailable. Please try again.' }, { status: 502 })
+    }
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

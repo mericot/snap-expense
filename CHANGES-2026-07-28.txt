@@ -1,0 +1,146 @@
+SnapExpense — Changes Report (2026-07-28)
+==========================================
+
+This report covers all work performed during the audit cycle
+(2026-07-27 to 2026-07-28) for pre-launch review.
+
+
+PART 1: AUDIT (read-only, no code changes)
+───────────────────────────────────────────
+Performed a full pre-launch health and security audit across 24 items
+covering functionality (auth flow, receipt pipeline, error handling,
+dead code, env vars) and security (RLS, secret exposure, API auth,
+rate limiting, upload validation, XSS/SQLi, dependencies).
+
+Initial result: 12 PASS / 5 FLAG / 5 FAIL
+Deliverable: AUDIT-REPORT.txt
+
+
+PART 2: FIXES (5 commits, one per finding)
+───────────────────────────────────────────
+
+FIX 1 — Auth on /api/extract                    [commit 2d5a22e]
+  What: Added server-side session verification as the first action in
+  the extract route. Unauthenticated requests are rejected with 401
+  before the body is read or any Anthropic call is made.
+  Files changed:
+    + src/lib/supabase-server.ts (new — server-side Supabase client
+      via @supabase/ssr, reads auth from request cookies)
+    ~ src/app/api/extract/route.ts (added getUser() check at top)
+    ~ package.json / package-lock.json (added @supabase/ssr dependency)
+
+FIX 2 — Rate limiting on /api/extract            [commit c1d8d6a]
+  What: Added per-user rate limiting (20 extractions/hour) using a
+  Supabase rate_limits table and an atomic Postgres function
+  (check_rate_limit). Returns 429 with a clear message when exceeded.
+  The limit is a single constant (RATE_LIMIT_PER_HOUR) and also a
+  parameter to the RPC, ready for per-tier billing overrides.
+  Files changed:
+    + db/rate_limits.sql (new — table, RLS policy, Postgres function)
+    ~ src/app/api/extract/route.ts (added RPC call after auth check)
+
+FIX 3 — Upload size limit                       [commit 4c8613e]
+  What: Enforced 10 MB max body size at two checkpoints: Content-Length
+  header (before reading the body) and actual body length (after reading,
+  before JSON parsing). Also added server-side media type validation
+  against an allowlist — the server was previously trusting whatever
+  the client sent.
+  Files changed:
+    ~ src/app/api/extract/route.ts (size checks + ALLOWED_MEDIA_TYPES)
+  Not changed:
+    Client-side resize (1500px max, JPEG 0.85) was already running
+    correctly for non-HEIC files. No client fix needed.
+
+FIX 4 — Auth callback error handling             [commit ce6e9be]
+  What: Expired/invalid magic links now show a "Sign-in failed" screen
+  with the error message and a "Request a new link" button, instead of
+  hanging on "Signing you in…" forever. If the user is already logged
+  in and clicks a stale link, they're silently redirected home.
+  Files changed:
+    ~ src/app/auth/callback/page.tsx (async/await + error state + UI)
+
+FIX 5 — Cleanup                                 [commit 2d764c5]
+  What: Deleted test-extract.mjs (leftover dev script in project root).
+  Confirmed .gitignore already covers .idea/, .DS_Store, .env*, etc.
+  Files changed:
+    - test-extract.mjs (deleted)
+
+
+PART 3: BUILD FIX
+─────────────────
+
+Vercel build failure fix                         [commit b3e47ba]
+  What: The Supabase client was created at module scope in supabase.ts,
+  which crashed during Next.js prerendering when NEXT_PUBLIC_SUPABASE_URL
+  wasn't available. Changed to lazy initialization behind a Proxy — the
+  real client is created on first property access at runtime only. All
+  existing call sites (supabase.auth.*, supabase.from()) work unchanged.
+  Files changed:
+    ~ src/lib/supabase.ts (eager createClient → lazy Proxy)
+  Verified: npm run build completes cleanly. Vercel deploy succeeded.
+
+
+PART 4: DATABASE CHANGES (live Supabase, 2026-07-28)
+────────────────────────────────────────────────────
+
+Applied rate_limits migration:
+  - Created rate_limits table (user_id, window_start, request_count)
+  - Enabled RLS with select policy scoped to auth.uid()
+  - Created check_rate_limit() function (atomic check-and-increment)
+  This was blocking all extraction requests (returning 429) because
+  the code called an RPC that didn't exist yet.
+
+Fixed schema drift on expenses.user_id:
+  - Changed from NULLABLE to NOT NULL
+  - Verified zero null rows existed before applying
+  - Live DB now matches db/schema.sql
+
+Verification queries confirmed:
+  - 2 tables exist (expenses, rate_limits), both with RLS enabled
+  - check_rate_limit function exists
+  - expenses.user_id is NOT NULL
+
+
+PART 5: LIVE VERIFICATION RESULTS
+──────────────────────────────────
+
+RLS cross-user isolation (tested against production DB):
+  SELECT as user A → saw only own 5 rows, 0 from other users     PASS
+  UPDATE user B's rows as user A → 0 rows affected                PASS
+  DELETE user B's rows as user A → 0 rows affected                PASS
+  INSERT with user B's user_id as user A → RLS policy violation   PASS
+
+Vercel env vars (verified via vercel env ls):
+  ANTHROPIC_API_KEY                 set, Production               PASS
+  NEXT_PUBLIC_SUPABASE_URL          set, Production               PASS
+  NEXT_PUBLIC_SUPABASE_ANON_KEY     set, Production               PASS
+
+Vercel deploy (commit aa76522):
+  Build status: success                                           PASS
+
+
+CURRENT STATE
+─────────────
+All 5 original FAILs: RESOLVED
+Flags resolved: 3 of 4 (env vars, RLS isolation, rate_limits migration)
+Remaining flag: Claude API timeout handling (no explicit timeout on
+  Anthropic SDK call; SDK default is 10 min with 2 retries)
+
+Open dependency vulnerabilities: 6 high (postcss × 3, sharp × 1)
+  Fix available: npm audit fix --force (upgrades next 16.2.9 → 16.2.12)
+
+
+FILES ADDED OR CHANGED (cumulative)
+────────────────────────────────────
++ src/lib/supabase-server.ts         Server-side Supabase client
++ db/rate_limits.sql                 Rate limiting migration
++ AUDIT-REPORT.txt                   Initial audit (v1)
++ AUDIT-REPORT-v2.txt                Post-fix audit (v2)
++ AUDIT-FLAGS-BREAKDOWN.txt          Detailed flag investigation
++ CHANGES-2026-07-28.txt             This report
+~ src/app/api/extract/route.ts       Auth + rate limit + size limit + media type validation
+~ src/app/auth/callback/page.tsx     Error handling for expired magic links
+~ src/lib/supabase.ts                Lazy-init Proxy (build fix)
+~ package.json                       Added @supabase/ssr
+~ package-lock.json                  Updated lockfile
+- test-extract.mjs                   Removed leftover dev script

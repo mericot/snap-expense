@@ -1,0 +1,221 @@
+SnapExpense — Detailed Flag Breakdown
+======================================
+Date: 2026-07-28
+
+
+═══════════════════════════════════════════════════════════════════════
+FLAG 1: Claude API Timeout / Failure Handling
+═══════════════════════════════════════════════════════════════════════
+
+WHAT'S HAPPENING NOW
+────────────────────
+The Anthropic SDK call in /api/extract has:
+  - No explicit timeout (SDK default is 10 MINUTES)
+  - maxRetries default is 2 (so worst case: 3 attempts × 10 min = 30 min)
+  - The catch block returns a generic "Internal server error" 500
+  - No user-facing distinction between "API is down" vs "image was bad"
+
+Current code (route.ts line 75):
+  const message = await anthropic.messages.create({ ... })
+
+No timeout, no signal, no maxRetries override.
+
+WHAT CAN GO WRONG
+─────────────────
+1. Anthropic API is slow or unresponsive → user stares at "Processing…"
+   spinner for up to 30 minutes before the SDK gives up. No cancel button.
+
+2. Anthropic API returns a 500/503 → SDK retries twice with exponential
+   backoff, tripling the wait. User has no idea retries are happening.
+
+3. Anthropic rate-limits your key (429) → SDK retries, user waits, and
+   the generic "Internal server error" gives no hint about what happened.
+
+4. Vercel serverless function timeout (default 10s on Hobby, 60s on Pro)
+   will kill the function mid-flight. The user gets a Vercel 504 gateway
+   timeout, not your error message. With HEIC conversion + API call,
+   this is a real scenario.
+
+RISK LEVEL
+──────────
+Medium. Not a security issue, but a reliability/UX issue that WILL hit
+real users. Receipt photos of long CVS receipts or low-light photos take
+longer to process, and any Anthropic outage turns your app into a
+spinner that never resolves.
+
+WHAT TO FIX
+───────────
+Three things, all in src/app/api/extract/route.ts:
+
+1. Set a per-request timeout on the Anthropic call (30s):
+   The SDK accepts { timeout: 30000 } as the second argument to
+   messages.create(). This is a per-attempt timeout — with 1 retry,
+   worst case is ~60s.
+
+2. Reduce maxRetries to 1 (or 0) for this endpoint:
+   Either set it on the client constructor or per-request. For a
+   user-facing synchronous call, 1 retry is enough. The user can
+   always tap "try again" manually.
+
+3. Catch specific error types and return actionable messages:
+   The Anthropic SDK throws typed errors:
+   - APIConnectionTimeoutError → "Request timed out. Please try again."
+   - RateLimitError → "Service is busy. Please wait a moment."
+   - APIError (500/503) → "Service temporarily unavailable."
+   This lets the client show a retry button vs. a "contact support" message.
+
+4. Set maxDuration in the route file for Vercel:
+   export const maxDuration = 60
+   This tells Vercel to allow up to 60s for this function (requires Pro
+   plan; Hobby caps at 10s). Without this, Vercel may kill the function
+   before the Anthropic call completes.
+
+
+═══════════════════════════════════════════════════════════════════════
+FLAG 2: Vercel Environment Variables
+═══════════════════════════════════════════════════════════════════════
+
+VERIFIED — THIS FLAG IS NOW RESOLVED
+─────────────────────────────────────
+Checked via `vercel env ls`:
+
+  NEXT_PUBLIC_SUPABASE_ANON_KEY    Encrypted    Production    16d ago
+  NEXT_PUBLIC_SUPABASE_URL         Encrypted    Production    16d ago
+  ANTHROPIC_API_KEY                Encrypted    Production    16d ago
+
+All 3 env vars referenced in code are set in Vercel Production.
+No extra unused vars are defined.
+
+REMAINING CONCERN
+─────────────────
+The vars are set for Production only — not for Preview or Development.
+This means:
+  - Preview deployments (PR branches) will fail at runtime because
+    ANTHROPIC_API_KEY won't be available server-side
+  - This is probably fine for now (you don't want preview deploys burning
+    API credits), but be aware of it if you add CI/staging workflows
+
+
+═══════════════════════════════════════════════════════════════════════
+FLAG 3: RLS Runtime Verification
+═══════════════════════════════════════════════════════════════════════
+
+VERIFIED — THIS FLAG IS NOW RESOLVED
+─────────────────────────────────────
+Ran live cross-user isolation tests against the production Supabase DB.
+4 users with 10 total expenses were tested.
+
+Test: Impersonate user A (95bba242...), query all expenses
+Result: PASS — returned only user A's 5 rows, zero rows from users B/C/D
+
+Test: Impersonate user A, UPDATE user B's expenses
+Result: PASS — 0 rows affected, user B's data unchanged
+
+Test: Impersonate user A, DELETE user B's expenses
+Result: PASS — 0 rows affected, user B still has 2 rows
+
+Test: Impersonate user A, INSERT with user B's user_id
+Result: PASS — Postgres rejected with:
+  "new row violates row-level security policy for table expenses"
+
+All four CRUD operations are properly isolated by RLS.
+
+ISSUES DISCOVERED DURING VERIFICATION
+──────────────────────────────────────
+Two new issues surfaced while inspecting the live database:
+
+1. CRITICAL — rate_limits table and check_rate_limit function DO NOT EXIST
+   in the live database.
+
+   The rate limiting code in /api/extract calls:
+     supabase.rpc('check_rate_limit', { p_user_id: user.id, ... })
+
+   This RPC will fail on every request because the function doesn't
+   exist. The route treats RPC failure (rlError) the same as rate-limit
+   exceeded, so EVERY authenticated extraction request is currently
+   returning 429 "Rate limit exceeded" — the feature is broken.
+
+   FIX: Run db/rate_limits.sql in the Supabase SQL Editor immediately.
+   This creates the table, RLS policy, and the check_rate_limit function.
+
+2. SCHEMA DRIFT — expenses.user_id is NULLABLE in the live DB
+
+   The db/schema.sql file says:
+     user_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id)
+
+   But the live column is:
+     user_id: nullable, no default
+
+   This matches the older supabase/schema.sql (which had no NOT NULL
+   or default). The RLS policy still works (null != auth.uid() means
+   orphan rows are invisible to everyone), but:
+   - A service-role INSERT without user_id would create an orphan row
+   - The schema doesn't enforce what the app assumes
+
+   FIX: ALTER TABLE expenses ALTER COLUMN user_id SET NOT NULL;
+   (Verify no existing rows have null user_id first — they don't,
+   confirmed by the GROUP BY query above.)
+
+
+═══════════════════════════════════════════════════════════════════════
+FLAG 4: Dependency Vulnerabilities
+═══════════════════════════════════════════════════════════════════════
+
+CURRENT STATE
+─────────────
+npm audit reports 6 high-severity vulnerabilities:
+
+postcss (3 issues, all via @tailwindcss/postcss and next):
+  - GHSA-qx2v-qp2m-jg93: XSS via unescaped </style> in CSS stringify
+  - GHSA-6g55-p6wh-862q: Arbitrary file read via sourceMappingURL
+  - GHSA-r28c-9q8g-f849: Path traversal in source map auto-loading
+
+sharp <0.35.0 (via next):
+  - GHSA-f88m-g3jw-g9cj: 4 inherited libvips CVEs
+    (CVE-2026-33327, CVE-2026-33328, CVE-2026-35590, CVE-2026-35591)
+
+ACTUAL RISK
+───────────
+Low-to-medium. These are not directly exploitable by end users:
+
+  postcss: Build-time only. An attacker would need to inject malicious
+  CSS with crafted sourceMappingURL comments into your build pipeline.
+  Not exploitable from the browser. Risk is supply-chain (compromised
+  dependency injecting bad CSS), not direct attack.
+
+  sharp/libvips: Server-side image processing. The CVEs involve crafted
+  image files triggering buffer overflows in libvips. In theory, a user
+  could upload a malicious image that exploits sharp during HEIC→JPEG
+  conversion. This is the more concerning one — it's in the request
+  path and processes untrusted user input.
+
+FIX
+───
+Run: npm audit fix --force
+
+This upgrades next from 16.2.9 → 16.2.12, which pulls in patched
+versions of postcss and sharp. It's a patch-level bump so breakage
+risk is low, but test the build and basic functionality afterward.
+
+If you want to be conservative, you can upgrade just sharp:
+  npm install sharp@0.35.0
+(But the postcss issues would remain until next is updated.)
+
+
+═══════════════════════════════════════════════════════════════════════
+SUMMARY — ACTIONS NEEDED
+═══════════════════════════════════════════════════════════════════════
+
+IMMEDIATE (the app is partially broken right now):
+  1. Run db/rate_limits.sql in Supabase SQL Editor — without this,
+     every extraction request returns 429.
+
+SHOULD DO BEFORE LAUNCH:
+  2. Fix the Anthropic timeout (FLAG 1) — add { timeout: 30000 } and
+     reduce maxRetries.
+  3. Run: ALTER TABLE expenses ALTER COLUMN user_id SET NOT NULL;
+  4. Run: npm audit fix --force and verify the build.
+
+RESOLVED (no action needed):
+  5. Vercel env vars — all 3 confirmed present in Production.
+  6. RLS cross-user isolation — all 4 CRUD operations verified blocked.
