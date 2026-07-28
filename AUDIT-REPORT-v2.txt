@@ -1,0 +1,124 @@
+SnapExpense Pre-Launch Health & Security Audit (v2)
+=====================================================
+Date: 2026-07-28
+Scope: Re-audit after fixes applied from v1 report (2026-07-27)
+
+
+FUNCTIONALITY
+─────────────
+
+[PASS] Receipt upload → vision extraction → save pipeline works end-to-end
+       Unchanged. Client resizes/converts, POSTs base64 to /api/extract, Claude Haiku extracts JSON, user reviews and saves to Supabase.
+
+[PASS] Handles a corrupted/unreadable image gracefully (no crash, clear error)
+       Unchanged. try/catch returns 500 JSON error; client displays the message.
+
+[FLAG] Handles a Claude API timeout/failure gracefully (no crash, clear error)
+       Still no explicit timeout on the Anthropic SDK call. A hung request leaves the user on "Processing…" indefinitely. The catch block returns a generic 500 with no retry suggestion. Not a blocker but worth improving.
+
+[PASS] Handles malformed/non-JSON extraction output gracefully
+       Unchanged. Falls back to regex JSON extraction, returns 422 with raw text if both parse attempts fail.
+
+[PASS] Magic-link send works
+       Unchanged. supabase.auth.signInWithOtp with redirect to /auth/callback.
+
+[PASS] Magic-link verify/callback works                                    ← was FLAG
+       FIXED. The callback now awaits exchangeCodeForSession and catches errors. On failure, shows a clear "Sign-in failed" screen with the error message and a "Request a new link" button.
+
+[PASS] Session persists across page reloads
+       Unchanged. getSession() on mount + onAuthStateChange listener.
+
+[PASS] Logout actually clears the session
+       Unchanged. supabase.auth.signOut() clears local session.
+
+[PASS] An expired magic link fails gracefully (clear message, not a crash) ← was FAIL
+       FIXED. Auth callback catches exchange errors, displays the Supabase error message, and offers a "Request a new link" action. No more blank "Signing you in…" hang.
+
+[PASS] A user who's already logged in clicking an old magic link doesn't break
+       IMPROVED. The callback now explicitly checks for an existing session first. If exchange fails but a session exists, it silently redirects home instead of showing an error.
+
+[PASS] No dead code, unused routes, or leftover debug/test endpoints       ← was FAIL
+       FIXED. test-extract.mjs deleted. No other test-*, debug-*, or scratch files found outside node_modules.
+
+[FLAG] Every env var referenced in code is actually set in Vercel; no env var set in Vercel is unused in code
+       Unchanged. Code references: ANTHROPIC_API_KEY, NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY. Vercel dashboard must be checked manually.
+
+
+SECURITY
+────────
+
+[PASS] RLS is enabled on every table
+       Now two tables: expenses and rate_limits. Both have RLS enabled.
+
+[PASS] For each table with RLS: policies are select/insert/update/delete scoped to user_id = auth.uid()
+       expenses: 4 separate policies (select/insert/update/delete), all scoped to user_id = auth.uid().
+       rate_limits: select policy scoped to user_id = auth.uid(). Insert/update handled atomically by the check_rate_limit function (security definer). Delete not exposed to users — cleanup is admin-only.
+
+[FLAG] Enforcement is verified at the DB level, not just assumed
+       Unchanged. RLS policies are correct in SQL files but no automated cross-user isolation test exists. Manual verification against live DB recommended before launch.
+
+[PASS] SUPABASE_SERVICE_ROLE_KEY never appears in any client bundle
+       Unchanged. Zero references in the entire source tree.
+
+[PASS] ANTHROPIC_API_KEY never appears in any client bundle
+       Unchanged. Only referenced in src/app/api/extract/route.ts (server-side). No NEXT_PUBLIC_ prefix.
+
+[PASS] Every API route that touches user data checks for an authenticated session ← was FAIL
+       FIXED. /api/extract now calls supabase.auth.getUser() via @supabase/ssr (cookie-based, server-side verification) as its first action. Returns 401 before parsing the body or calling Anthropic.
+
+[PASS] Rate limiting exists on the vision extraction endpoint               ← was FAIL
+       FIXED. Per-user rate limiting via Supabase rate_limits table and atomic check_rate_limit Postgres function. 20 extractions/hour/user. Returns 429 with a clear message. Limit is a single constant (RATE_LIMIT_PER_HOUR) ready for per-tier overrides.
+
+[PASS] File upload has a size limit                                         ← was FAIL
+       FIXED. 10 MB max enforced at two points: Content-Length header check (before reading body) and actual body length check (after reading, before JSON parsing). Returns 413 with clear message.
+
+[PASS] File upload validates file type (server-side)                        ← was FLAG
+       FIXED. Server now validates mediaType against ALLOWED_MEDIA_TYPES allowlist before processing. Rejects unknown types with 400.
+
+[PASS] If uploaded images are stored (not just processed and discarded)
+       Unchanged. Images are processed in-memory only, never persisted.
+
+[PASS] Any user-supplied text is validated/sanitized before storage and display
+       Unchanged. React auto-escapes JSX interpolation (no dangerouslySetInnerHTML). Supabase JS SDK uses parameterized queries.
+
+[FLAG] Dependency vulnerability scan (npm audit)
+       6 high-severity vulnerabilities remain:
+       - postcss (3 issues): XSS in CSS stringify, arbitrary file read and path traversal via sourceMappingURL (GHSA-qx2v-qp2m-jg93, GHSA-6g55-p6wh-862q, GHSA-r28c-9q8g-f849)
+       - sharp (<0.35.0): inherited libvips CVEs (CVE-2026-33327, CVE-2026-33328, CVE-2026-35590, CVE-2026-35591) (GHSA-f88m-g3jw-g9cj)
+       Fix: npm audit fix --force (upgrades next to 16.2.12). These are build-time/server-side only — no direct client exposure — but should be patched.
+
+
+ADDITIONAL (new since v1)
+─────────────────────────
+
+[PASS] Supabase client survives Next.js prerendering
+       supabase.ts now lazy-initializes the client behind a Proxy. createClient() is deferred until the first property access at runtime, preventing "supabaseUrl is required" crashes during static page generation.
+
+[PASS] .gitignore covers IDE and OS artifacts
+       Covers .idea/, .DS_Store, .env* (except .env.example), node_modules, .next, .vercel, *.pem, debug logs.
+
+[PASS] Vercel production build succeeds
+       Verified: build completes cleanly, deploy succeeded (commit aa76522).
+
+
+SCORECARD
+─────────
+
+                v1 (2026-07-27)    v2 (2026-07-28)
+  PASS               12                 20
+  FLAG                5                  3
+  FAIL                5                  0
+
+All 5 FAILs from v1 are resolved.
+
+
+REMAINING FLAGS (non-blocking, recommended)
+───────────────────────────────────────────
+
+1. FLAG — Claude API timeout: add an explicit timeout (e.g. 30s) to the Anthropic SDK call and show a user-friendly retry message instead of the generic 500.
+
+2. FLAG — Vercel env vars: manually verify in the Vercel dashboard that ANTHROPIC_API_KEY, NEXT_PUBLIC_SUPABASE_URL, and NEXT_PUBLIC_SUPABASE_ANON_KEY are all set for production, and that no unused vars are lingering.
+
+3. FLAG — RLS runtime verification: test cross-user isolation in the live DB (authenticate as user A, attempt to read/update/delete user B's expense — confirm it's blocked).
+
+4. FLAG — Dependency vulnerabilities: run `npm audit fix --force` to upgrade next to 16.2.12, resolving postcss and sharp CVEs. Test the build afterward.
