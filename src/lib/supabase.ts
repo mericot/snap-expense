@@ -1,10 +1,11 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createBrowserClient } from '@supabase/ssr'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 let _client: SupabaseClient | null = null
 
 function getClient() {
   if (!_client) {
-    _client = createClient(
+    _client = createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
@@ -12,7 +13,6 @@ function getClient() {
   return _client
 }
 
-// Proxy so existing `supabase.auth.*` / `supabase.from(…)` call sites work unchanged.
 export const supabase: SupabaseClient = new Proxy({} as SupabaseClient, {
   get(_target, prop, receiver) {
     return Reflect.get(getClient(), prop, receiver)
