@@ -28,13 +28,12 @@ export default function CookieBanner() {
   } = useCookieConsent()
 
   const ref = useRef<HTMLDivElement>(null)
-  const [analytics, setAnalytics] = useState(false)
 
-  // Keep the panel's checkbox in step with a decision that already exists (the
-  // banner can be reopened from the footer's "Cookies" link).
-  useEffect(() => {
-    setAnalytics(consent?.analytics ?? false)
-  }, [consent])
+  // The panel's checkbox defaults to whatever is already recorded (the banner
+  // is reopenable from the footer) and is only overridden once the user touches
+  // it. Deriving it this way avoids an effect that mirrors props into state.
+  const [analyticsOverride, setAnalyticsOverride] = useState<boolean | null>(null)
+  const analytics = analyticsOverride ?? consent?.analytics ?? false
 
   // Announce the dialog and put the keyboard inside it when it appears.
   useEffect(() => {
@@ -90,7 +89,10 @@ export default function CookieBanner() {
           size="sm"
           aria-expanded={panelOpen}
           aria-controls="cookie-category-panel"
-          onClick={() => setPanelOpen(!panelOpen)}
+          onClick={() => {
+            if (!panelOpen) setAnalyticsOverride(null)
+            setPanelOpen(!panelOpen)
+          }}
         >
           Choose
         </Button>
@@ -131,7 +133,7 @@ export default function CookieBanner() {
               <input
                 type="checkbox"
                 checked={analytics}
-                onChange={(e) => setAnalytics(e.target.checked)}
+                onChange={(e) => setAnalyticsOverride(e.target.checked)}
                 className="mt-[3px]"
                 aria-describedby="cookie-cat-analytics"
               />

@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState, useSyncExternalStore } from 'react'
 
 /**
  * Cookie consent state, lifted out of the banner so the footer's "Cookies" link
@@ -13,9 +13,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
  * an explicit product and legal decision.
  *
  * Anything non-essential (analytics, session replay, ad pixels) must be gated
- * on `consent.analytics === true`. Today the app loads no such script, so there
- * is nothing to gate yet; the gate exists so the first one added has an obvious
- * place to hook into.
+ * on `consent?.analytics === true`. The app loads no such script today, so
+ * there is nothing to gate yet; the gate exists so the first one added has an
+ * obvious place to hook into.
  */
 
 export type ConsentCategories = {
@@ -33,43 +33,74 @@ type StoredDecision = {
 const STORAGE_KEY = 'snapexpense.cookie-consent'
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000
 
-function readDecision(): StoredDecision | null {
-  if (typeof window === 'undefined') return null
+/* ---------------------------------------------------------------------------
+   localStorage as an external store.
+
+   Read through useSyncExternalStore rather than an effect: it hydrates without
+   a mismatch, and subscribing to `storage` means a choice made in one tab
+   applies in the others — which is the behaviour you want from a consent
+   record. The snapshot is cached against the raw string so it stays
+   referentially stable between renders.
+--------------------------------------------------------------------------- */
+
+const listeners = new Set<() => void>()
+let cachedRaw: string | null | undefined
+let cachedDecision: StoredDecision | null = null
+
+function parseDecision(raw: string | null): StoredDecision | null {
+  if (!raw) return null
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<StoredDecision>
     if (parsed.version !== 1 || typeof parsed.decidedAt !== 'number') return null
-    // The decision is persisted for one year, then we ask again.
-    if (Date.now() - parsed.decidedAt > ONE_YEAR_MS) {
-      window.localStorage.removeItem(STORAGE_KEY)
-      return null
-    }
+    // Decisions expire after a year; an expired record reads as undecided, so
+    // the banner comes back. The stale entry is overwritten by the next
+    // decision rather than deleted here — reads must stay side-effect free.
+    if (Date.now() - parsed.decidedAt > ONE_YEAR_MS) return null
     return { version: 1, decidedAt: parsed.decidedAt, analytics: parsed.analytics === true }
   } catch {
-    // Private mode, disabled storage, or corrupt JSON: behave as undecided.
+    // Corrupt JSON reads as undecided: for consent, "ask again" is the correct
+    // way to fail.
     return null
   }
 }
 
-function writeDecision(analytics: boolean): StoredDecision | null {
-  const decision: StoredDecision = { version: 1, decidedAt: Date.now(), analytics }
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(decision))
-  } catch {
-    // Storage unavailable — the decision still applies for this page view, we
-    // just have to ask again next time. Failing closed is the right side to
-    // fail on for consent.
+function subscribe(onChange: () => void) {
+  listeners.add(onChange)
+  window.addEventListener('storage', onChange)
+  return () => {
+    listeners.delete(onChange)
+    window.removeEventListener('storage', onChange)
   }
-  return decision
 }
 
+function getSnapshot(): StoredDecision | null {
+  let raw: string | null = null
+  try {
+    raw = window.localStorage.getItem(STORAGE_KEY)
+  } catch {
+    // Private mode or storage disabled: behave as undecided.
+    raw = null
+  }
+  if (raw !== cachedRaw) {
+    cachedRaw = raw
+    cachedDecision = parseDecision(raw)
+  }
+  return cachedDecision
+}
+
+function getServerSnapshot(): StoredDecision | null {
+  return null
+}
+
+const subscribeToNothing = () => () => {}
+const alwaysTrue = () => true
+const alwaysFalse = () => false
+
 type CookieConsentValue = {
-  /** null until the stored decision has been read on the client. */
+  /** null until a decision exists (and null on the server). */
   consent: ConsentCategories | null
-  /** True once the client has read localStorage; nothing renders before this. */
+  /** False during SSR and the hydration render; nothing consent-shaped renders before it flips. */
   hydrated: boolean
-  /** Whether the banner is on screen. */
   bannerOpen: boolean
   /** Whether the per-category panel inside the banner is expanded. */
   panelOpen: boolean
@@ -90,47 +121,49 @@ export function useCookieConsent(): CookieConsentValue {
 }
 
 export default function CookieConsentProvider({ children }: { children: React.ReactNode }) {
-  const [consent, setConsent] = useState<ConsentCategories | null>(null)
-  const [hydrated, setHydrated] = useState(false)
-  const [bannerOpen, setBannerOpen] = useState(false)
+  const decision = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
+  const hydrated = useSyncExternalStore(subscribeToNothing, alwaysTrue, alwaysFalse)
+
+  // Only the decision is persisted. Whether the banner is on screen is derived:
+  // open when nothing is stored, or when the footer link reopened it.
+  const [reopened, setReopened] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
 
-  useEffect(() => {
-    const stored = readDecision()
-    if (stored) {
-      setConsent({ essential: true, analytics: stored.analytics })
-    } else {
-      // Show the banner only when no decision is stored. The banner's own
-      // visibility is never persisted — only the decision is.
-      setBannerOpen(true)
-    }
-    setHydrated(true)
-  }, [])
-
   const record = useCallback((analytics: boolean) => {
-    writeDecision(analytics)
-    setConsent({ essential: true, analytics })
-    setBannerOpen(false)
+    const next: StoredDecision = { version: 1, decidedAt: Date.now(), analytics }
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    } catch {
+      // Storage unavailable — the decision holds for this page view and we ask
+      // again next time.
+    }
+    for (const listener of listeners) listener()
+    setReopened(false)
     setPanelOpen(false)
   }, [])
+
+  const consent = useMemo<ConsentCategories | null>(
+    () => (decision ? { essential: true, analytics: decision.analytics } : null),
+    [decision],
+  )
 
   const value = useMemo<CookieConsentValue>(
     () => ({
       consent,
       hydrated,
-      bannerOpen,
+      bannerOpen: hydrated && (decision === null || reopened),
       panelOpen,
-      openBanner: () => setBannerOpen(true),
+      openBanner: () => setReopened(true),
       closeBanner: () => {
-        setBannerOpen(false)
+        setReopened(false)
         setPanelOpen(false)
       },
       setPanelOpen,
       acceptAll: () => record(true),
       essentialOnly: () => record(false),
-      saveChoice: (analytics: boolean) => record(analytics),
+      saveChoice: record,
     }),
-    [consent, hydrated, bannerOpen, panelOpen, record],
+    [consent, hydrated, decision, reopened, panelOpen, record],
   )
 
   return <CookieConsentContext.Provider value={value}>{children}</CookieConsentContext.Provider>
