@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import CookieBanner from "@/components/CookieBanner";
+import CookieConsentProvider from "@/components/CookieConsentProvider";
 import Footer from "@/components/Footer";
 import "./globals.css";
 
@@ -25,8 +27,15 @@ export default function RootLayout({
     // variable. The design is light-only, so both sides now agree.
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
-        <div className="flex flex-1 flex-col">{children}</div>
-        <Footer />
+        {/* body is the sticky-footer column: the children wrapper takes the
+            slack, the footer sits under it, and the cookie banner is the last
+            flex child so `position: sticky; bottom: 0` pins it to the viewport
+            without ever covering the footer. */}
+        <CookieConsentProvider>
+          <div className="flex flex-1 flex-col">{children}</div>
+          <Footer />
+          <CookieBanner />
+        </CookieConsentProvider>
       </body>
     </html>
   );
