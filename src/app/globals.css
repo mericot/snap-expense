@@ -106,8 +106,15 @@ textarea {
    far above the 3:1 minimum for non-text UI. The 2px offset keeps the ring
    legible around the dark primary button, where it sits on the surrounding
    surface rather than on the button itself.
+
+   The selector is doubled deliberately. Tailwind's `focus:outline-none`
+   compiles to `.focus\:outline-none:focus`, which outranks a single
+   `:focus-visible` on specificity — one habitual utility in a page component
+   would silently delete the ring. `:focus-visible:focus-visible` ties on
+   specificity and wins on order. A component that genuinely needs a different
+   treatment should override the outline, not remove it.
 --------------------------------------------------------------------------- */
-:focus-visible {
+:focus-visible:focus-visible {
   outline: 2px solid var(--color-text);
   outline-offset: 2px;
   border-radius: 2px;

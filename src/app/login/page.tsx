@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase'
 // MOVED, NOT REDESIGNED. This is the sign-in screen that used to live inside
 // src/app/page.tsx, carried across so the product still has a way to sign in
 // while task 02 designs this route. Task 02 replaces this file wholesale; the
-// only edits made here are the two that task 00 owns — `min-h-screen` became
+// only edits made here are the two that task 00 owns — the full-viewport min-height became
 // `flex-1` (PR #7 finding 1, the footer sat below the fold) and two pre-existing
 // lint errors that were already failing `npm run lint` on the base branch.
 

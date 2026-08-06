@@ -11,7 +11,7 @@ import { useSession } from '@/components/SessionProvider'
 // MOVED, NOT REDESIGNED. `App`, `ExpenseRow` and `MobileExpenseCard` are the
 // components that used to live in src/app/page.tsx, carried across unchanged so
 // the diff stays reviewable. Task 03 restyles them. The only edits task 00 made
-// are `min-h-screen` -> `flex-1` (PR #7 finding 1) and one pre-existing lint
+// are the full-viewport min-height became `flex-1` (PR #7 finding 1) and one pre-existing lint
 // error that was already failing `npm run lint` on the base branch.
 
 type ExtractedExpense = {
