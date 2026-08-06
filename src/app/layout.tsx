@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import CookieBanner from "@/components/CookieBanner";
 import CookieConsentProvider from "@/components/CookieConsentProvider";
 import Footer from "@/components/Footer";
+import SessionProvider from "@/components/SessionProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -31,11 +32,13 @@ export default function RootLayout({
             slack, the footer sits under it, and the cookie banner is the last
             flex child so `position: sticky; bottom: 0` pins it to the viewport
             without ever covering the footer. */}
-        <CookieConsentProvider>
-          <div className="flex flex-1 flex-col">{children}</div>
-          <Footer />
-          <CookieBanner />
-        </CookieConsentProvider>
+        <SessionProvider>
+          <CookieConsentProvider>
+            <div className="flex flex-1 flex-col">{children}</div>
+            <Footer />
+            <CookieBanner />
+          </CookieConsentProvider>
+        </SessionProvider>
       </body>
     </html>
   );

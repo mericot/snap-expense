@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Design reference bundle, not source. `support.js` is the prototype's own
+    // runtime (ReactDOM.render, `module` reassignment) and has no production
+    // relevance — it was failing `npm run lint` before this branch existed.
+    "design_handoff_snapexpense_paid/**",
   ]),
 ]);
 
