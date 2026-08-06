@@ -13,8 +13,9 @@ import { supabase } from '@/lib/supabase'
  * All three exits used to be `/`. Now that `/` is the marketing landing, a
  * signed-in user clicking their link would have been dropped on the sales page:
  *
- * - success            -> /receipts   (the app)
- * - no `code` in the URL -> /receipts if a session already exists, else /login
+ * - success              -> /receipts (the app)
+ * - Supabase error params -> stay here and say why (expired or reused link)
+ * - no `code` in the URL  -> /receipts if a session already exists, else /login
  * - exchange failed with a live session -> /receipts (the link was stale, but
  *   they are signed in, so there is nothing to fix)
  * - exchange failed with no session -> stay here and say why, then offer /login
@@ -27,7 +28,18 @@ export default function AuthCallback() {
     async function handleCallback() {
       const { data: { session: existing } } = await supabase.auth.getSession()
 
-      const code = new URLSearchParams(window.location.search).get('code')
+      const params = new URLSearchParams(window.location.search)
+
+      // Supabase reports a dead link (expired, already used) as query params on
+      // the redirect rather than as an exchange failure. Without this the user
+      // is bounced to /login with no explanation.
+      const supabaseError = params.get('error_description') ?? params.get('error_code')
+      if (supabaseError && !existing) {
+        setError(supabaseError.replace(/\+/g, ' '))
+        return
+      }
+
+      const code = params.get('code')
       if (!code) {
         router.replace(existing ? '/receipts' : '/login')
         return

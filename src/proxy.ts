@@ -23,6 +23,20 @@ const AUTHENTICATED_ONLY = ['/receipts', '/checkout']
 
 const SIGNED_IN_HOME = '/receipts'
 const SIGNED_OUT_HOME = '/login'
+const AUTH_CALLBACK = '/auth/callback'
+
+/**
+ * Does this request carry a Supabase auth redirect?
+ *
+ * `code` is the PKCE authorization code. `error_code` is Supabase-specific and
+ * accompanies a failed link (expired, already used). A bare `error` is
+ * deliberately not matched — task 02 may well want `/login?error=...` of its
+ * own, and hijacking that would be a nasty surprise.
+ */
+function isAuthRedirect(request: NextRequest) {
+  const params = request.nextUrl.searchParams
+  return params.has('code') || params.has('error_code')
+}
 
 function matches(pathname: string, routes: string[]) {
   return routes.some((route) =>
@@ -31,6 +45,24 @@ function matches(pathname: string, routes: string[]) {
 }
 
 export async function proxy(request: NextRequest) {
+  const { pathname, search } = request.nextUrl
+
+  // Magic-link codes do not always arrive at /auth/callback.
+  //
+  // `signInWithOtp` asks for `emailRedirectTo: <origin>/auth/callback`, but
+  // Supabase only honours that if the URL is in the project's redirect
+  // allow-list. When it is not, it silently falls back to the project's Site
+  // URL — the site *root* — so the user lands on `/?code=...` where nothing
+  // exchanges the code and they just see the landing page. That used to be
+  // survivable because `/` was the app and supabase-js picked the code out of
+  // the URL on its own; now `/` is a marketing stub, so it is a dead end.
+  //
+  // Forwarding the code to the handler makes the flow independent of dashboard
+  // configuration. Same origin, so the PKCE verifier is still available.
+  if (pathname !== AUTH_CALLBACK && isAuthRedirect(request)) {
+    return NextResponse.redirect(new URL(`${AUTH_CALLBACK}${search}`, request.url))
+  }
+
   // `response` is reassigned by setAll below so refreshed auth cookies survive
   // whichever branch we return from.
   let response = NextResponse.next({ request })
@@ -60,8 +92,6 @@ export async function proxy(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser()
-
-  const { pathname, search } = request.nextUrl
 
   if (user && matches(pathname, PUBLIC_ONLY)) {
     return redirectPreservingCookies(request, response, SIGNED_IN_HOME)
