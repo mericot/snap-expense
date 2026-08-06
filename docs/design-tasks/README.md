@@ -91,24 +91,39 @@ git checkout -b design/01-landing
    at ~900px.
 8. Run `npm run build` and `npm run lint` clean before requesting review.
 
+## Decided
+
+- **Market: USD / US.** The app already formats amounts as `$`, so nothing migrates and
+  no stored amount changes meaning. Use `worktree-usd-usa-handoff`'s localized bundle as
+  the spec, not the original EU one. Consequences: Imprint → Contact (§5 DDG is German
+  only, no US equivalent — the slot stays, a reachable business identity is still the
+  point); CCPA/CPRA leads the compliance chips ahead of GDPR; the entity line reads
+  "San Francisco, CA" (placeholder); checkout shows **destination-based US sales tax
+  keyed on ZIP**, not a single national VAT rate, and must render `$0.00` where SaaS is
+  untaxed.
+- **Integration branch: `ui-improvements`.** `main` is not to be touched by any task —
+  no commits, no pushes, no PRs against it. Every branch cuts from `ui-improvements` and
+  merges back into it.
+
 ## Open decisions — flagged, not resolved
 
 These affect more than one branch. Each task file states the assumption it proceeds
 under so work is not blocked; confirm before launch.
 
-- **Currency.** The app currently formats amounts as USD (`$`, `fmt()` in
-  `src/app/page.tsx`). The design is entirely EUR with a Berlin entity and a 19% VAT
-  line. *Assumption: adopt EUR app-wide.* This changes existing stored-data display.
 - **Prices are a recommendation, not locked.** The handoff README says so explicitly.
-  €0 / €7 mo billed yearly (€84/yr) / €11 per person. Task 04 centralises these in
-  `src/lib/plans.ts` so one edit changes every screen.
+  $0 / $7 mo billed yearly ($84/yr) / $11 per person — numeral parity with the original
+  EU figures, *not* an FX conversion, so they need a real pricing decision. Task 04
+  centralises them in `src/lib/plans.ts` so one edit changes every screen.
+- **Sales tax is not a constant.** US sales tax is destination-based and SaaS is not
+  taxable in every state. Task 05 shows an illustrative 8.875% (NYC) line; in production
+  it must come from a tax engine keyed on the customer's ZIP.
 - **Retention window.** The footer and the inbox retention notice both promise 30 days.
   Must match the real Supabase backup lifecycle before launch, or the copy changes.
 - **"SOC 2 in progress" chip.** Only ship this if the audit is genuinely underway.
+  Likewise the **GDPR chip** — keep it only if the client actually serves EU users.
 - **Legal pages do not exist.** The footer links to Privacy, Terms, Refunds, Cookies,
-  DPA, Subprocessors and Imprint. Task 00 wires them as real hrefs to `/legal/*`;
-  those pages are a separate piece of work and must exist before Team ships (Imprint is
-  required for a German entity under §5 DDG).
+  DPA, Subprocessors and Contact. Task 00 wires them as real hrefs to `/legal/*`; those
+  pages are separate work and must exist before Team ships.
 - **No billing backend.** Tasks 04 and 05 are UI-only. Card fields are Stripe Elements
   in production and must never be plain inputs that touch our servers — task 05 renders
   a clearly-marked placeholder, not a working card form.

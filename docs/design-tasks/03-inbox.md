@@ -38,7 +38,7 @@ decide in the PR whether they are disabled-looking or 404 — do not invent thos
 Body, 24px padding, 20px gap between blocks:
 
 **1. Month header row** — "March 2026" (22px/600/`-0.01em`) with a meta line beneath at
-13px `#71717a`: "12 receipts · €1,284.60 · 3 need a category". Right: "Export CSV"
+13px `#71717a`: "12 receipts · $1,284.60 · 3 need a category". Right: "Export CSV"
 outline and "Add receipt" primary, both 13px. All three numbers are derived from real
 data, not hardcoded. "Export CSV" wires to the existing `exportCSV()`; "Add receipt"
 opens the existing file input.
@@ -90,7 +90,7 @@ Proceed under these assumptions and state them in the PR:
 | 36×44 thumbnail | image never stored — it is sent to `/api/extract` and discarded | render the placeholder box; **do not** build image upload here |
 | Quota "10 of 10 free" | no plan or usage tracking | count this month's rows against a `FREE_MONTHLY_LIMIT = 10` constant; no enforcement |
 | — | `/api/extract` already rate-limits to 20 uploads/hour/user and rejects >10 MB | surface those failures properly — see below |
-| Currency `€` | `fmt()` outputs `$` | switch to EUR — see the open decision in the index |
+| Currency | `fmt()` outputs `$` | **no change** — market is USD/US, the app is already correct |
 
 Note that the **20 uploads/hour rate limit is a different thing from the 10/month free
 quota** and is enforced server-side today. A user can hit it and the quota row will

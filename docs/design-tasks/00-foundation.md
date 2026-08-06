@@ -96,14 +96,21 @@ Appears on **every** screen. Top border `#e4e4e7`, `#fafafa` background, 24px pa
 - Payments — "Processed by our payment provider. We never store card numbers."
 
 **Band 2** — space-between, 12px. Links (6px/16px gap, no underline, `#71717a`, hover
-`#18181b`): Privacy · Terms · Refunds · Cookies · DPA · Subprocessors · Imprint. Point
+`#18181b`): Privacy · Terms · Refunds · Cookies · DPA · Subprocessors · Contact. Point
 these at `/legal/privacy`, `/legal/terms`, `/legal/refunds`, `/legal/dpa`,
-`/legal/subprocessors`, `/legal/imprint`. "Cookies" is not a page — it reopens the
+`/legal/subprocessors`, `/legal/contact`. "Cookies" is not a page — it reopens the
 consent panel (see below). The legal pages themselves are out of scope for this task;
 note in the PR that the links will 404 until they are written.
-Chips on the right: GDPR · CCPA · SOC 2 in progress.
+Chips on the right: CCPA/CPRA · GDPR · SOC 2 in progress.
 
-**Band 3** — 12px `#a1a1aa`: "© 2026 snapExpense Inc. · Berlin, DE".
+**Band 3** — 12px `#a1a1aa`: "© 2026 snapExpense Inc. · San Francisco, CA". Placeholder
+city — flag it as needing the entity's real registered address.
+
+Market is **USD / US** (decided). Imprint became Contact because §5 DDG is a German duty
+with no US equivalent — the slot stays, because a reachable business identity is still
+the point. CCPA/CPRA leads the chips because California's regime is what actually binds
+a US entity; the GDPR chip is kept for EU customers but **comes down if the client does
+not serve EU users** — an unearned compliance badge is worse than no badge.
 
 Each of the four band-1 statements is a commitment. If any becomes untrue, the footer
 changes with it.

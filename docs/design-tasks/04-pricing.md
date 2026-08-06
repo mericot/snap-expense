@@ -19,11 +19,12 @@ change is one edit, not a search across two screens:
 
 ```ts
 // src/lib/plans.ts — single source of truth for pricing across /pricing and /checkout
-export const VAT_RATE = 0.19
+// Sales tax is NOT a constant — see below. This is an illustrative fallback only.
+export const ILLUSTRATIVE_TAX_RATE = 0.08875 // NYC combined
 export const PLANS = [ /* free, pro, team */ ]
 ```
 
-Pro is quoted as "€7 per month, billed yearly", which is €84 charged annually — task 05
+Pro is quoted as "$7 per month, billed yearly", which is $84 charged annually — task 05
 depends on that figure. Derive it, do not restate it.
 
 ## Layout
@@ -45,7 +46,7 @@ via `margin-top: auto`.
 | | Free | Pro | Team |
 |---|---|---|---|
 | Sub | For the occasional receipt | For freelancers and one-person businesses | When someone else has to approve it |
-| Price | €0 forever | €7 per month, billed yearly | €11 per person, per month |
+| Price | $0 forever | $7 per month, billed yearly | $11 per person, per month |
 | Features | 10 receipts a month; Automatic merchant and total; Monthly summary | Unlimited receipts; CSV and Excel export; Custom categories and tax rates; Search across every year | Everything in Pro; Shared workspace and approvals; Accountant access, read-only; Data processing agreement on request |
 | CTA | "Current plan", disabled outline | "Start 14-day trial", primary | "Add your team", outlined `#18181b` |
 
@@ -65,7 +66,7 @@ state to read yet). Note that in the PR.
 Centred row, 12px `#71717a`, 8px/24px gaps. All three must be present **before**
 checkout, verbatim:
 
-- Prices exclude VAT, added at checkout
+- Prices exclude sales tax, added at checkout where applicable
 - Cancel any time, keeps working until the period ends
 - 14 days to change your mind, full refund
 
@@ -83,7 +84,7 @@ that breaks — it is why `box-sizing` is called out above. Cards stack at mobil
 ## Definition of done
 
 - `npm run build` and `npm run lint` clean.
-- Every price, feature string and VAT rate reads from `src/lib/plans.ts`.
+- Every price and feature string reads from `src/lib/plans.ts`.
 - Three-up at 900px, stacked at 420px, Pro badge not clipped at any width.
 - The three pre-checkout statements are present and verbatim.
 - Both active CTAs reach `/checkout`.
