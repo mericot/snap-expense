@@ -132,6 +132,9 @@ export default function LoginPage() {
           </Link>
 
           <nav aria-label="Primary" className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[14px]">
+            <Link href="/" className="inline-flex min-h-11 items-center text-text-muted hover:text-text sm:min-h-0">
+              Home
+            </Link>
             <Link href="/pricing" className="inline-flex min-h-11 items-center text-text-muted hover:text-text sm:min-h-0">
               Pricing
             </Link>
