@@ -47,19 +47,30 @@ function matches(pathname: string, routes: string[]) {
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl
 
-  // Magic-link codes do not always arrive at /auth/callback.
+  // Safety net for one specific dashboard misconfiguration, deliberately kept.
   //
   // `signInWithOtp` asks for `emailRedirectTo: <origin>/auth/callback`, but
-  // Supabase only honours that if the URL is in the project's redirect
+  // Supabase only honours that if the URL is in the project's Redirect URLs
   // allow-list. When it is not, it silently falls back to the project's Site
   // URL — the site *root* — so the user lands on `/?code=...` where nothing
   // exchanges the code and they just see the landing page. That used to be
   // survivable because `/` was the app and supabase-js picked the code out of
   // the URL on its own; now `/` is a marketing stub, so it is a dead end.
   //
-  // Forwarding the code to the handler makes the flow independent of dashboard
-  // configuration. Same origin, so the PKCE verifier is still available.
-  if (pathname !== AUTH_CALLBACK && isAuthRedirect(request)) {
+  // Scoped to `/` on purpose. The Site URL fallback can only ever land on the
+  // Site URL itself, so `/` is the entire blast radius, and forwarding from
+  // anywhere else would just be guessing. Note the net is thinner than it
+  // looks: it rescues the user only when the host they requested the link from
+  // is the same host as the Site URL, because the PKCE verifier cookie is
+  // host-scoped. A link requested on localhost and bounced to production is
+  // unrecoverable no matter what this does. So this is a production-only
+  // cushion, not a substitute for docs/auth-setup.md — once the allow-list
+  // there is confirmed in the dashboard, this block can be deleted.
+  //
+  // No open-redirect risk: the destination is a hard-coded same-origin path.
+  // Only the query string is carried over, and /auth/callback validates every
+  // part of it that can influence where the user ends up.
+  if (pathname === '/' && isAuthRedirect(request)) {
     return NextResponse.redirect(new URL(`${AUTH_CALLBACK}${search}`, request.url))
   }
 
