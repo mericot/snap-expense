@@ -121,9 +121,33 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex flex-1 flex-col items-center bg-surface-recessed px-8 pt-[72px] pb-[84px]">
-      <h1 className="text-[30px] font-bold tracking-[-0.02em] text-text">snapExpense</h1>
-      <p className="mt-2 text-[15px] text-text-tertiary">Sign in to manage your receipts</p>
+    <>
+      <header className="border-b border-border bg-surface px-8 py-4">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-wrap items-center justify-between gap-3">
+          <Link
+            href="/"
+            className="inline-flex min-h-11 items-center text-[17px] font-bold tracking-[-0.01em] text-text no-underline hover:text-text sm:min-h-0"
+          >
+            snapExpense
+          </Link>
+
+          <nav aria-label="Primary" className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[14px]">
+            <Link href="/pricing" className="inline-flex min-h-11 items-center text-text-muted hover:text-text sm:min-h-0">
+              Pricing
+            </Link>
+            <Link href="/legal/privacy" className="inline-flex min-h-11 items-center text-text-muted hover:text-text sm:min-h-0">
+              Privacy
+            </Link>
+            <Button href="/login" size="sm">
+              Try it free
+            </Button>
+          </nav>
+        </div>
+      </header>
+
+      <main className="flex flex-1 flex-col items-center bg-surface-recessed px-8 pt-[72px] pb-[84px]">
+        <h1 className="text-[30px] font-bold tracking-[-0.02em] text-text">snapExpense</h1>
+        <p className="mt-2 text-[15px] text-text-tertiary">Sign in to manage your receipts</p>
 
       {status === 'sent' ? (
         <SentPanel
@@ -170,6 +194,7 @@ export default function LoginPage() {
         </Card>
       )}
     </main>
+    </>
   )
 }
 
