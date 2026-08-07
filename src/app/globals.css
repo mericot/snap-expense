@@ -39,6 +39,13 @@
 
   /* Status ---------------------------------------------------------------- */
   --color-warning: #a16207; /* "Needs category" status only */
+  /* Error text only — form validation and failed requests. The handoff never
+   * specifies one (the mock has no error state), so this is added rather than
+   * invented per-page. It measures 6.29:1 against #ffffff and 6.03:1 against
+   * #fafafa, both clear of the 4.5:1 minimum for body text. It is a status
+   * colour, not an accent: nothing decorative may use it, and the text it
+   * colours must still read as an error with colour removed. */
+  --color-danger: #b91c1c;
 
   /* Radii ----------------------------------------------------------------- *
    * The design uses 4 / 7 / 8 / 10 / 12 / 999px. Tailwind already ships
