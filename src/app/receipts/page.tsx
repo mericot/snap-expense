@@ -6,7 +6,6 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { Button, Card } from '@/components/ui'
-import { CATEGORIES } from '@/lib/categories'
 import { supabase, type Expense } from '@/lib/supabase'
 import { useSession } from '@/components/SessionProvider'
 import AppHeader from './AppHeader'
@@ -18,7 +17,6 @@ import { ALLOWED_TYPES, FREE_MONTHLY_LIMIT, HEIC_TYPES } from './constants'
 import {
   currentMonthKey,
   groupByMonth,
-  money,
   monthLabel,
   monthMeta,
   type MonthGroup,
@@ -134,15 +132,6 @@ function App({ session }: { session: Session }) {
 
   const thisMonthKey = currentMonthKey()
   const usedThisMonth = groups.find((g) => g.key === thisMonthKey)?.count ?? 0
-
-  const categoryTotals = CATEGORIES.map((cat) => ({
-    category: cat,
-    total: expenses
-      .filter((e) => e.category === cat)
-      .reduce((sum, e) => sum + Number(e.total), 0),
-  })).filter((c) => c.total > 0)
-
-  const grandTotal = expenses.reduce((sum, e) => sum + Number(e.total), 0)
 
   function clearForm() {
     setStatus('idle')
@@ -385,32 +374,6 @@ function App({ session }: { session: Session }) {
               </section>
             )
           })}
-
-          {/* Not in the design. Kept because it is working functionality that
-              nothing else on the page replaces — deleting a feature is not a
-              restyle. It is arguably the seed of the undesigned "Reports"
-              screen and would move there. See the PR. */}
-          {categoryTotals.length > 0 && (
-            <section className="flex flex-col gap-3">
-              <h2 className="text-[13px] font-semibold text-text-title">By category</h2>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {categoryTotals.map(({ category, total }) => (
-                  <Card key={category} padding="none" className="px-4 py-3">
-                    <p className="text-[12px] text-text-tertiary">{category}</p>
-                    <p className="mt-1 text-[15px] font-semibold tabular-nums text-text">
-                      {money(total)}
-                    </p>
-                  </Card>
-                ))}
-                <div className="rounded-card border border-text bg-text px-4 py-3">
-                  <p className="text-[12px] text-text-faint">Total</p>
-                  <p className="mt-1 text-[15px] font-semibold tabular-nums text-surface">
-                    {money(grandTotal)}
-                  </p>
-                </div>
-              </div>
-            </section>
-          )}
 
           {/* 5 — Retention notice. */}
           <RetentionNotice />
