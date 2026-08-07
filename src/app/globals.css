@@ -27,6 +27,11 @@
   /* Borders --------------------------------------------------------------- */
   --color-border: #e4e4e7; /* default border */
   --color-border-strong: #d4d4d8; /* buttons, dividers */
+  /* Added by task 03. The inbox draws its list container in --color-border and
+     the dividers *between* rows one step lighter, so the container reads as one
+     object rather than a stack of boxes. #e4e4e7 is too heavy for that job and
+     the design specifies #f4f4f5 for it. */
+  --color-border-subtle: #f4f4f5; /* dividers inside a bordered container */
 
   /* Text ------------------------------------------------------------------ */
   --color-text: #18181b; /* primary text; primary button background */
