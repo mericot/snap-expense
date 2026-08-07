@@ -251,7 +251,13 @@ function App({ session }: { session: Session }) {
 
   return (
     <>
-      <AppHeader email={session.user.email} onSignOut={() => supabase.auth.signOut()} />
+      <AppHeader
+        email={session.user.email}
+        onSignOut={async () => {
+          await supabase.auth.signOut()
+          window.location.href = '/login'
+        }}
+      />
 
       <main className="flex-1 bg-surface">
         <div className="mx-auto flex max-w-[900px] flex-col gap-5 p-6">
