@@ -1,17 +1,9 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import CookieBanner from "@/components/CookieBanner";
+import CookieConsentProvider from "@/components/CookieConsentProvider";
 import Footer from "@/components/Footer";
+import SessionProvider from "@/components/SessionProvider";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "snapExpense",
@@ -30,13 +22,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col bg-zinc-50">
-        <div className="flex-1">{children}</div>
-        <Footer />
+    // The system font stack and the page background both come from globals.css
+    // tokens now; `bg-zinc-50` used to be pinned here, which overrode the token
+    // and left the body light while inherited text followed the dark-mode
+    // variable. The design is light-only, so both sides now agree.
+    <html lang="en" className="h-full antialiased">
+      <body className="min-h-full flex flex-col">
+        {/* body is the sticky-footer column: the children wrapper takes the
+            slack, the footer sits under it, and the cookie banner is the last
+            flex child so `position: sticky; bottom: 0` pins it to the viewport
+            without ever covering the footer. */}
+        <SessionProvider>
+          <CookieConsentProvider>
+            <div className="flex flex-1 flex-col">{children}</div>
+            <Footer />
+            <CookieBanner />
+          </CookieConsentProvider>
+        </SessionProvider>
       </body>
     </html>
   );
