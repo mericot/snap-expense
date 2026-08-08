@@ -26,13 +26,16 @@ export default async function CheckoutPage({
 }: {
   searchParams: Promise<{ plan?: string }>
 }) {
+  const { plan } = await searchParams
+
   const supabase = await createSupabaseServerClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
   if (!user) {
-    redirect(`/login?next=${encodeURIComponent('/checkout')}`)
+    const checkoutPath = plan ? `/checkout?plan=${plan}` : '/checkout'
+    redirect(`/login?next=${encodeURIComponent(checkoutPath)}`)
   }
 
   const { data: sub } = await supabase
@@ -48,8 +51,6 @@ export default async function CheckoutPage({
   ) {
     redirect('/receipts')
   }
-
-  const { plan } = await searchParams
   const planId: PlanId = plan === 'team' ? 'team' : 'pro'
   const priceId = priceIdForPlan(planId)
 
