@@ -79,10 +79,10 @@ export default function Footer() {
           </Link>
         </nav>
 
-        {/* CCPA/CPRA leads: California's regime is what binds a US entity. GDPR
-            stays only while the client actually serves EU users, and "SOC 2 in
-            progress" must come down or become "SOC 2 Type II" once the audit
-            resolves. An unearned compliance badge is worse than no badge. */}
+        {/* CCPA/CPRA applies if serving California residents. GDPR stays only
+            while actually serving EU users. "SOC 2 in progress" must come down
+            or become "SOC 2 Type II" once the audit resolves. An unearned
+            compliance badge is worse than no badge. */}
         <div className="flex flex-wrap gap-2">
           <Badge>CCPA/CPRA</Badge>
           <Badge>GDPR</Badge>
@@ -92,10 +92,9 @@ export default function Footer() {
 
       {/* Band 3 — entity line. Literal, not `new Date().getFullYear()`: this
           route is statically prerendered, so a computed year would freeze at
-          build time and quietly go stale. San Francisco is a placeholder for
-          the entity's real registered address. */}
+          build time and quietly go stale. */}
       <div className="text-[12px] text-text-faint">
-        © 2026 snapExpense Inc. · San Francisco, CA
+        © 2026 snapExpense · Boston, MA
       </div>
     </footer>
   )
