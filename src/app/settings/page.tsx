@@ -105,9 +105,18 @@ export default function SettingsPage() {
                   size="sm"
                   className="mt-3 text-danger"
                   disabled={deleting}
-                  onClick={() => {
+                  onClick={async () => {
                     if (!window.confirm('Are you sure you want to delete your account? All data will be permanently removed.')) return
                     setDeleting(true)
+                    try {
+                      const res = await fetch('/api/account/delete', { method: 'POST' })
+                      if (!res.ok) throw new Error('Delete failed')
+                      await supabase.auth.signOut()
+                      window.location.href = '/login'
+                    } catch {
+                      setDeleting(false)
+                      alert('Something went wrong. Please try again.')
+                    }
                   }}
                 >
                   {deleting ? 'Deleting…' : 'Delete account'}
