@@ -55,6 +55,8 @@ export function authErrorReason(raw: string | null | undefined): string {
   if (text.includes('expired')) return 'expired'
   if (text.includes('already') || text.includes('used')) return 'already_used'
   if (text.includes('denied') || text.includes('cancel')) return 'denied'
+  if (text.includes('verifier') || text.includes('pkce') || text.includes('code_challenge'))
+    return 'different_browser'
   return 'invalid'
 }
 

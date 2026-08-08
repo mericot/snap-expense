@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { Button, Card, cx } from '@/components/ui'
 import {
   PLANS,
@@ -86,6 +87,33 @@ function PlanCard({ plan }: { plan: Plan }) {
 
 export default function PricingPage() {
   return (
+    <>
+      <header className="border-b border-border bg-surface px-8 py-4">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-wrap items-center justify-between gap-3">
+          <Link
+            href="/"
+            className="inline-flex min-h-11 items-center text-[17px] font-bold tracking-[-0.01em] text-text no-underline hover:text-text sm:min-h-0"
+          >
+            snapExpense
+          </Link>
+
+          <nav aria-label="Primary" className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[14px]">
+            <Link href="/" className="inline-flex min-h-11 items-center text-text-muted hover:text-text sm:min-h-0">
+              Home
+            </Link>
+            <span aria-current="page" className="inline-flex min-h-11 items-center text-text sm:min-h-0">
+              Pricing
+            </span>
+            <Link href="/legal/privacy" className="inline-flex min-h-11 items-center text-text-muted hover:text-text sm:min-h-0">
+              Privacy
+            </Link>
+            <Button href="/login" size="sm">
+              Try it free
+            </Button>
+          </nav>
+        </div>
+      </header>
+
     <main className="flex flex-1 flex-col items-center bg-surface-recessed px-6 pt-12 pb-2">
       <h1 className="text-center text-[28px] font-bold tracking-[-0.02em] text-text text-pretty">
         Start free. Upgrade when your receipts pile up.
@@ -110,5 +138,6 @@ export default function PricingPage() {
         ))}
       </ul>
     </main>
+    </>
   )
 }

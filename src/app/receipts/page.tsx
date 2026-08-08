@@ -8,6 +8,7 @@ import type { Session } from '@supabase/supabase-js'
 import { Button, Card } from '@/components/ui'
 import { supabase, type Expense } from '@/lib/supabase'
 import { useSession } from '@/components/SessionProvider'
+import { useSubscription } from '@/components/SubscriptionProvider'
 import AppHeader from './AppHeader'
 import Dropzone from './Dropzone'
 import ExtractionReview, { type ExtractedExpense } from './ExtractionReview'
@@ -83,6 +84,8 @@ function readToBase64(file: File): Promise<{ base64: string; mediaType: string }
 // ── App (authenticated) ──────────────────────────────────────────────────────
 
 function App({ session }: { session: Session }) {
+  const { plan, status: subStatus } = useSubscription()
+  const isPaid = plan !== 'free' && (subStatus === 'active' || subStatus === 'trialing')
   const inputRef = useRef<HTMLInputElement>(null)
   const [status, setStatus] = useState<
     'idle' | 'loading' | 'done' | 'saving' | 'saved' | 'error'
@@ -91,13 +94,25 @@ function App({ session }: { session: Session }) {
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [expenses, setExpenses] = useState<Expense[]>([])
+  const [scansThisMonth, setScansThisMonth] = useState(0)
 
   const loadExpenses = useCallback(async () => {
-    const { data } = await supabase
-      .from('expenses')
-      .select('*')
-      .order('created_at', { ascending: false })
+    const now = new Date()
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01T00:00:00`
+
+    const [{ data }, { count }] = await Promise.all([
+      supabase
+        .from('expenses')
+        .select('*')
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('expenses')
+        .select('*', { count: 'exact', head: true })
+        .gte('created_at', monthStart),
+    ])
     if (data) setExpenses(data)
+    setScansThisMonth(count ?? 0)
   }, [])
 
   // Initial fetch on mount. The rule wants this hoisted out of an effect, which
@@ -131,7 +146,7 @@ function App({ session }: { session: Session }) {
   }, [expenses])
 
   const thisMonthKey = currentMonthKey()
-  const usedThisMonth = groups.find((g) => g.key === thisMonthKey)?.count ?? 0
+  const usedThisMonth = scansThisMonth
 
   function clearForm() {
     setStatus('idle')
@@ -145,6 +160,15 @@ function App({ session }: { session: Session }) {
     setError(null)
     setResult(null)
     setPreview(null)
+
+    if (!isPaid && usedThisMonth >= FREE_MONTHLY_LIMIT) {
+      setStatus('error')
+      setError(
+        `You have used all ${FREE_MONTHLY_LIMIT} free receipts this month. Upgrade to Pro for unlimited scans.`,
+      )
+      return
+    }
+
     setStatus('loading')
     const heic = isHeic(file)
     if (!heic && !ALLOWED_TYPES.includes(file.type)) {
@@ -202,23 +226,28 @@ function App({ session }: { session: Session }) {
     setTimeout(clearForm, 1500)
   }
 
-  async function handleUpdate(id: string, draft: EditDraft) {
+  async function handleUpdate(id: string, draft: EditDraft): Promise<string | null> {
+    if (!draft.merchant.trim()) return 'Merchant is required.'
+    if (!draft.date) return 'Date is required.'
+    const total = parseFloat(draft.total)
+    if (!Number.isFinite(total) || total < 0) return 'Total must be a valid number.'
     const { error: dbError } = await supabase
       .from('expenses')
       .update({
-        merchant: draft.merchant,
+        merchant: draft.merchant.trim(),
         date: draft.date,
-        total: parseFloat(draft.total),
+        total,
         tax: draft.tax !== '' ? parseFloat(draft.tax) : null,
         category: draft.category || null,
       })
       .eq('id', id)
-    if (!dbError) await loadExpenses()
+    if (dbError) return `Save failed: ${dbError.message}`
+    await loadExpenses()
+    return null
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm('Delete this expense? This cannot be undone.')) return
-    await supabase.from('expenses').delete().eq('id', id)
+    await supabase.from('expenses').update({ deleted_at: new Date().toISOString() }).eq('id', id)
     await loadExpenses()
   }
 
@@ -247,7 +276,8 @@ function App({ session }: { session: Session }) {
   }
 
   const reviewing = status === 'done' || status === 'saving'
-  const showDropzone = !reviewing && status !== 'saved'
+  const quotaReached = !isPaid && usedThisMonth >= FREE_MONTHLY_LIMIT
+  const showDropzone = !reviewing && status !== 'saved' && !quotaReached
 
   return (
     <>
@@ -309,7 +339,26 @@ function App({ session }: { session: Session }) {
                       />
                     )}
 
-                    {status === 'error' && error && (
+                    {quotaReached && (
+                      <Card padding="none" className="px-[18px] py-5">
+                        <div className="flex flex-col items-center gap-3 text-center">
+                          <p className="text-[15px] font-semibold text-text">
+                            You have used all {FREE_MONTHLY_LIMIT} free receipts this month
+                          </p>
+                          <p className="max-w-[320px] text-[13px] leading-[1.5] text-text-muted">
+                            Upgrade to Pro for unlimited scans, no monthly cap, and priority support.
+                          </p>
+                          <Link
+                            href="/pricing"
+                            className="mt-1 inline-flex items-center rounded-lg border border-text bg-text px-5 py-2.5 text-[14px] font-medium text-surface transition-colors hover:bg-text-secondary hover:border-text-secondary"
+                          >
+                            See plans
+                          </Link>
+                        </div>
+                      </Card>
+                    )}
+
+                    {status === 'error' && error && !quotaReached && (
                       <Card padding="none" className="px-[18px] py-4">
                         <p role="alert" className="text-[13px] text-warning">
                           {error}
@@ -359,20 +408,18 @@ function App({ session }: { session: Session }) {
                     ))
                   )}
 
-                  {/* The quota is a calendar-month count, so it belongs to the
-                      current month's container and nowhere else. Calm and
-                      factual by design: no modal, no interrupt, no enforcement. */}
-                  {isCurrentMonth && (
+                  {isCurrentMonth && !isPaid && (
                     <div className="flex flex-wrap items-center justify-between gap-3 bg-surface-sunken px-[18px] py-[14px]">
-                      <p className="text-[13px] text-text-muted">
-                        You have used {usedThisMonth} of {FREE_MONTHLY_LIMIT} free receipts this
-                        month.
+                      <p className={`text-[13px] ${usedThisMonth >= FREE_MONTHLY_LIMIT ? 'font-medium text-text' : 'text-text-muted'}`}>
+                        {usedThisMonth >= FREE_MONTHLY_LIMIT
+                          ? `You have used all ${FREE_MONTHLY_LIMIT} free receipts this month.`
+                          : `You have used ${usedThisMonth} of ${FREE_MONTHLY_LIMIT} free receipts this month.`}
                       </p>
                       <Link
                         href="/pricing"
                         className="inline-flex min-h-11 items-center text-[13px] text-text underline hover:text-text sm:min-h-0"
                       >
-                        See plans
+                        {usedThisMonth >= FREE_MONTHLY_LIMIT ? 'Upgrade' : 'See plans'}
                       </Link>
                     </div>
                   )}

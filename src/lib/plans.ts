@@ -120,7 +120,7 @@ const PRO: Plan = {
     'Custom categories and tax rates',
     'Search across every year',
   ],
-  cta: { label: `Start ${TRIAL_DAYS}-day trial`, href: '/checkout', emphasis: 'primary' },
+  cta: { label: `Start ${TRIAL_DAYS}-day trial`, href: '/checkout?plan=pro', emphasis: 'primary' },
   highlight: 'Most people pick this',
 }
 
@@ -136,7 +136,7 @@ const TEAM: Plan = {
     'Accountant access, read-only',
     'Data processing agreement on request',
   ],
-  cta: { label: 'Add your team', href: '/checkout', emphasis: 'outline-strong' },
+  cta: { label: 'Add your team', href: '/checkout?plan=team', emphasis: 'outline-strong' },
 }
 
 /** Display order on `/pricing`. */

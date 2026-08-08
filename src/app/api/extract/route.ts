@@ -16,6 +16,7 @@ const ALLOWED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp
 
 const RATE_LIMIT_PER_HOUR = 20
 const MAX_BODY_BYTES = 10 * 1024 * 1024 // 10 MB
+const FREE_MONTHLY_LIMIT = 10
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,6 +29,30 @@ export async function POST(req: NextRequest) {
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { data: sub } = await supabase
+      .from('subscriptions')
+      .select('plan, status')
+      .eq('user_id', user.id)
+      .single()
+
+    const isPaid = sub && sub.plan !== 'free' && (sub.status === 'active' || sub.status === 'trialing')
+
+    if (!isPaid) {
+      const now = new Date()
+      const monthStart = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01T00:00:00`
+      const { count } = await supabase
+        .from('expenses')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .gte('created_at', monthStart)
+      if ((count ?? 0) >= FREE_MONTHLY_LIMIT) {
+        return NextResponse.json(
+          { error: `You have used all ${FREE_MONTHLY_LIMIT} free receipts this month. Upgrade to Pro for unlimited scans.` },
+          { status: 403 }
+        )
+      }
     }
 
     const { data: allowed, error: rlError } = await supabase.rpc('check_rate_limit', {

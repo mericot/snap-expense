@@ -3,6 +3,7 @@ import CookieBanner from "@/components/CookieBanner";
 import CookieConsentProvider from "@/components/CookieConsentProvider";
 import Footer from "@/components/Footer";
 import SessionProvider from "@/components/SessionProvider";
+import SubscriptionProvider from "@/components/SubscriptionProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -33,11 +34,13 @@ export default function RootLayout({
             flex child so `position: sticky; bottom: 0` pins it to the viewport
             without ever covering the footer. */}
         <SessionProvider>
-          <CookieConsentProvider>
-            <div className="flex flex-1 flex-col">{children}</div>
-            <Footer />
-            <CookieBanner />
-          </CookieConsentProvider>
+          <SubscriptionProvider>
+            <CookieConsentProvider>
+              <div className="flex flex-1 flex-col">{children}</div>
+              <Footer />
+              <CookieBanner />
+            </CookieConsentProvider>
+          </SubscriptionProvider>
         </SessionProvider>
       </body>
     </html>

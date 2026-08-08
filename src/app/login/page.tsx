@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Button, Card, Input, Label } from '@/components/ui'
 
@@ -51,6 +52,16 @@ function userFacingMessage(error: { message?: string; code?: string; status?: nu
 }
 
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginPageInner />
+    </Suspense>
+  )
+}
+
+function LoginPageInner() {
+  const searchParams = useSearchParams()
+  const next = searchParams.get('next')
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -83,9 +94,12 @@ export default function LoginPage() {
 
     // Unchanged from the previous implementation. Do not "improve" this: the
     // redirect target is being fixed on another branch.
+    const callbackUrl = new URL('/auth/callback', window.location.origin)
+    if (next) callbackUrl.searchParams.set('next', next)
+
     const { error: signInError } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+      options: { emailRedirectTo: callbackUrl.toString() },
     })
 
     if (signInError) {

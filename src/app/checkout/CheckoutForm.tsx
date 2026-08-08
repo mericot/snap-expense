@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { Button, Card, Input, Label, cx } from '@/components/ui'
+import { supabase } from '@/lib/supabase'
+import AppHeader from '@/app/receipts/AppHeader'
 import {
   ILLUSTRATIVE_TAX_RATE,
   REFUND_WINDOW_DAYS,
@@ -242,6 +244,15 @@ export default function CheckoutForm({ planId, email, firstChargeOn }: CheckoutF
   const zipInvalid = zip.trim().length > 0 && !ZIP_PATTERN.test(zip.trim())
 
   return (
+    <>
+      <AppHeader
+        email={email}
+        onSignOut={async () => {
+          await supabase.auth.signOut()
+          window.location.href = '/login'
+        }}
+      />
+
     <main className="flex flex-1 flex-wrap content-start justify-center gap-8 px-6 py-10">
       {/* Left column — the form. */}
       <form
@@ -443,5 +454,6 @@ export default function CheckoutForm({ planId, email, firstChargeOn }: CheckoutF
         </div>
       </Card>
     </main>
+    </>
   )
 }

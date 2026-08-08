@@ -19,7 +19,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 const PUBLIC_ONLY = ['/', '/login']
 
 /** Signed out, but on a page that needs a session. */
-const AUTHENTICATED_ONLY = ['/receipts', '/checkout']
+const AUTHENTICATED_ONLY = ['/receipts', '/checkout', '/settings']
 
 const SIGNED_IN_HOME = '/receipts'
 const SIGNED_OUT_HOME = '/login'
@@ -125,5 +125,5 @@ function redirectPreservingCookies(request: NextRequest, source: NextResponse, t
 }
 
 export const config = {
-  matcher: ['/', '/login', '/receipts/:path*', '/checkout/:path*'],
+  matcher: ['/', '/login', '/receipts/:path*', '/checkout/:path*', '/settings/:path*'],
 }

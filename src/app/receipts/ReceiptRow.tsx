@@ -55,11 +55,14 @@ export default function ReceiptRow({
   onDelete,
 }: {
   expense: Expense
-  onSave: (id: string, draft: EditDraft) => Promise<void>
+  onSave: (id: string, draft: EditDraft) => Promise<string | null>
   onDelete: (id: string) => Promise<void>
 }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [draft, setDraft] = useState<EditDraft>(() => draftFrom(expense))
   const fieldId = useId()
 
@@ -68,17 +71,37 @@ export default function ReceiptRow({
   }
 
   function startEditing() {
-    // Re-seed from the row rather than trusting state left over from a previous
-    // edit, so the form always opens showing what is actually stored.
     setDraft(draftFrom(expense))
+    setSaveError(null)
     setEditing(true)
   }
 
   async function save() {
     setSaving(true)
-    await onSave(expense.id, draft)
-    setSaving(false)
-    setEditing(false)
+    setSaveError(null)
+    try {
+      const error = await onSave(expense.id, draft)
+      if (error) {
+        setSaveError(error)
+      } else {
+        setEditing(false)
+      }
+    } catch {
+      setSaveError('Something went wrong. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function confirmDelete() {
+    setDeleting(true)
+    try {
+      await onDelete(expense.id)
+      setConfirming(false)
+    } catch {
+      setDeleting(false)
+      setConfirming(false)
+    }
   }
 
   const status = needsCategory(expense)
@@ -173,6 +196,10 @@ export default function ReceiptRow({
           </div>
         </div>
 
+        {saveError && (
+          <p className="mt-3 text-[13px] text-danger">{saveError}</p>
+        )}
+
         <div className="mt-4 flex flex-wrap gap-2">
           <Button size="sm" onClick={save} disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
@@ -228,16 +255,30 @@ export default function ReceiptRow({
           from reflowing under the cursor. */}
       <div
         className={cx(
-          'flex basis-full justify-end gap-2 sm:basis-auto',
-          'sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 sm:group-focus-within:opacity-100',
+          'flex basis-full items-center justify-end gap-2 sm:basis-auto',
+          !confirming && 'sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 sm:group-focus-within:opacity-100',
         )}
       >
-        <Button size="sm" variant="outline" onClick={startEditing}>
-          Edit<span className="sr-only"> {expense.merchant}</span>
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => onDelete(expense.id)}>
-          Delete<span className="sr-only"> {expense.merchant}</span>
-        </Button>
+        {confirming ? (
+          <>
+            <span className="text-[12px] text-text-muted">Delete?</span>
+            <Button size="sm" variant="outline" onClick={confirmDelete} disabled={deleting}>
+              {deleting ? 'Deleting…' : 'Yes'}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setConfirming(false)} disabled={deleting}>
+              No
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button size="sm" variant="outline" onClick={startEditing}>
+              Edit<span className="sr-only"> {expense.merchant}</span>
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setConfirming(true)}>
+              Delete<span className="sr-only"> {expense.merchant}</span>
+            </Button>
+          </>
+        )}
       </div>
     </div>
   )

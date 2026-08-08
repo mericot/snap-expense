@@ -27,6 +27,7 @@ export type Expense = {
   total: number
   tax: number | null
   category: string | null
+  deleted_at: string | null
 }
 
 export type Subscription = {
