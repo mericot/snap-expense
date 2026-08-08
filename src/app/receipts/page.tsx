@@ -98,7 +98,7 @@ function App({ session }: { session: Session }) {
 
   const loadExpenses = useCallback(async () => {
     const now = new Date()
-    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01T00:00:00`
+    const monthStart = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01T00:00:00`
 
     const [{ data }, { count }] = await Promise.all([
       supabase
