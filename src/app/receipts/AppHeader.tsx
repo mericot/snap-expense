@@ -9,9 +9,11 @@ import { initialsFromEmail } from './format'
 export default function AppHeader({
   email,
   onSignOut,
+  currentPage = 'receipts',
 }: {
   email: string | undefined
   onSignOut: () => void
+  currentPage?: 'receipts' | 'settings'
 }) {
   const initials = initialsFromEmail(email)
   const { plan, status } = useSubscription()
@@ -29,9 +31,15 @@ export default function AppHeader({
           </Link>
 
           <nav aria-label="Sections" className="flex items-center gap-4 text-[14px]">
-            <span aria-current="page" className="text-text">
-              Receipts
-            </span>
+            {currentPage === 'receipts' ? (
+              <span aria-current="page" className="text-text">
+                Receipts
+              </span>
+            ) : (
+              <Link href="/receipts" className="text-text-muted no-underline hover:text-text">
+                Receipts
+              </Link>
+            )}
           </nav>
         </div>
 

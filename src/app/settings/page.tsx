@@ -52,6 +52,7 @@ export default function SettingsPage() {
     <>
       <AppHeader
         email={email}
+        currentPage="settings"
         onSignOut={async () => {
           await supabase.auth.signOut()
           window.location.href = '/login'
