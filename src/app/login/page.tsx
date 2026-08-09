@@ -29,6 +29,23 @@ const RESEND_COOLDOWN_SECONDS = 60
 
 const EMAIL_FIELD_ID = 'email'
 const EMAIL_ERROR_ID = 'email-error'
+const SECRET_FIELD_ID = 'test-login-secret'
+
+/**
+ * The one address that can sign in without an emailed link, or `null` in any
+ * environment that has not configured one — which must include production.
+ *
+ * Public on purpose, and safe to be: it is half of a credential, and the half
+ * that opens nothing on its own. The secret lives only in `TEST_LOGIN_SECRET`
+ * on the server and is typed in by the tester. The gate that actually decides
+ * whether the bypass exists is src/lib/test-login.ts; this constant only
+ * decides whether the page offers the field, so a stale value here can at worst
+ * show a form that the server 401s.
+ *
+ * Read at module scope because Next inlines NEXT_PUBLIC_* at build time — there
+ * is nothing to re-read per render.
+ */
+const TEST_LOGIN_EMAIL = process.env.NEXT_PUBLIC_TEST_LOGIN_EMAIL?.trim().toLowerCase() || null
 
 type Status = 'idle' | 'loading' | 'sent' | 'error'
 
@@ -63,9 +80,16 @@ function LoginPageInner() {
   const searchParams = useSearchParams()
   const next = searchParams.get('next')
   const [email, setEmail] = useState('')
+  const [secret, setSecret] = useState('')
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<string | null>(null)
   const [cooldown, setCooldown] = useState(0)
+
+  // Typing the configured address swaps the form from "send me a link" to
+  // "sign in", in place. No hidden query param or key combination to remember:
+  // the address *is* the way in, which is the whole point of it being one
+  // specific address rather than a mode.
+  const isTestLogin = TEST_LOGIN_EMAIL !== null && email.trim().toLowerCase() === TEST_LOGIN_EMAIL
 
   const sentHeadingRef = useRef<HTMLHeadingElement>(null)
 
@@ -87,10 +111,56 @@ function LoginPageInner() {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (status === 'loading' || cooldown > 0) return
+    // The cooldown exists to mirror Supabase's OTP send limit, and the test
+    // login sends nothing, so it does not apply to it.
+    if (status === 'loading' || (cooldown > 0 && !isTestLogin)) return
 
     setStatus('loading')
     setError(null)
+
+    if (isTestLogin) {
+      // Unlike supabase-js, which reports failures in its return value, `fetch`
+      // rejects on a network error. Without this the form would sit on
+      // "Signing in…" forever with the dev server stopped, which is exactly
+      // when someone is most likely to be using this.
+      let response: Response
+      try {
+        response = await fetch('/api/test-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // The secret goes in the body, never the query string: URLs end up in
+          // server logs, browser history and Referer headers.
+          body: JSON.stringify({ email, secret, next }),
+        })
+      } catch (fetchError) {
+        console.error('test-login request failed', fetchError)
+        setError('Could not reach the server. Is it running?')
+        setStatus('error')
+        return
+      }
+
+      if (!response.ok) {
+        // A 404 means the server has no bypass configured even though this
+        // build was given an address for one — worth saying plainly, because
+        // the alternative is a tester retyping a correct secret.
+        const message =
+          response.status === 404
+            ? 'Test login is not enabled on this server.'
+            : ((await response.json().catch(() => null))?.error ??
+              `The server rejected the request (${response.status}).`)
+        setError(message)
+        setStatus('error')
+        return
+      }
+
+      const { redirectTo } = await response.json().catch(() => ({}))
+      // A full navigation, not router.replace: the session cookie arrived on
+      // the response above, and a hard load is the simplest way to guarantee
+      // src/proxy.ts reads it on the very next request rather than racing a
+      // client-side transition.
+      window.location.assign(redirectTo ?? '/receipts')
+      return
+    }
 
     // Unchanged from the previous implementation. Do not "improve" this: the
     // redirect target is being fixed on another branch.
@@ -189,6 +259,27 @@ function LoginPageInner() {
               aria-describedby={status === 'error' ? EMAIL_ERROR_ID : undefined}
             />
 
+            {isTestLogin && (
+              <>
+                <Label htmlFor={SECRET_FIELD_ID} className="mt-2">
+                  Test secret
+                </Label>
+                <Input
+                  id={SECRET_FIELD_ID}
+                  type="password"
+                  name="test-login-secret"
+                  // Not `current-password`: this is not the account's password
+                  // and offering to save it in a password manager alongside
+                  // real credentials invites confusion.
+                  autoComplete="off"
+                  required
+                  value={secret}
+                  onChange={(event) => setSecret(event.target.value)}
+                  placeholder="TEST_LOGIN_SECRET"
+                />
+              </>
+            )}
+
             {status === 'error' && error && (
               // The lead sentence is what carries the meaning; the colour only
               // reinforces it. Supabase's own message follows verbatim — it is
@@ -198,12 +289,21 @@ function LoginPageInner() {
               </p>
             )}
 
-            <Button type="submit" fullWidth className="mt-2" disabled={status === 'loading' || cooldown > 0}>
-              {status === 'loading'
-                ? 'Sending…'
-                : cooldown > 0
-                  ? `Resend in ${cooldown}s`
-                  : 'Send magic link'}
+            <Button
+              type="submit"
+              fullWidth
+              className="mt-2"
+              disabled={status === 'loading' || (cooldown > 0 && !isTestLogin)}
+            >
+              {isTestLogin
+                ? status === 'loading'
+                  ? 'Signing in…'
+                  : 'Sign in to test account'
+                : status === 'loading'
+                  ? 'Sending…'
+                  : cooldown > 0
+                    ? `Resend in ${cooldown}s`
+                    : 'Send magic link'}
             </Button>
 
             <ConsentLine />

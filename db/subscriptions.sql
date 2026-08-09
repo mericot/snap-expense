@@ -49,15 +49,33 @@ create policy "Users can insert own subscription"
 -- No user-facing update/delete policies — Stripe webhooks use the service
 -- role key to sync state, preventing users from modifying their own plan.
 
--- Auto-create a free subscription when a user signs up
+-- Auto-create a free subscription when a user signs up.
+--
+-- `set search_path` is load bearing, not boilerplate. This trigger runs on
+-- inserts into auth.users, which only ever happen on GoTrue's connection, and
+-- the supabase_auth_admin role is configured with `search_path=auth`. A
+-- security definer function does not get its own search_path unless it is given
+-- one, so `subscriptions` was resolved against `auth` alone and the insert
+-- failed with `relation "subscriptions" does not exist`. That error aborted the
+-- transaction that was creating the user, which GoTrue surfaces as the
+-- famously unhelpful `Database error saving new user` — i.e. no new account
+-- could be created at all, by magic link or otherwise.
+--
+-- Pinning it also closes the search_path hijack that makes an unqualified
+-- security definer function a privilege escalation in the first place, which is
+-- what Supabase's `function_search_path_mutable` lint is about. `pg_temp` is
+-- last so a temporary table can never shadow a real one.
 create or replace function create_default_subscription()
-returns trigger as $$
+returns trigger
+security definer
+set search_path = public, pg_temp
+as $$
 begin
   insert into subscriptions (user_id, plan, status)
   values (new.id, 'free', 'active');
   return new;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql;
 
 create trigger on_auth_user_created
   after insert on auth.users

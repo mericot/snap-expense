@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createSupabaseRouteClient } from '@/lib/supabase-server'
 import { AUTH_ERROR_ROUTE, authErrorReason } from '@/app/auth/error/reasons'
+import { safeNext } from '@/lib/safe-next'
 
 /**
  * Magic-link landing route.
@@ -100,26 +101,4 @@ export async function GET(request: NextRequest) {
   }
 
   return applyCookies(goTo(safeNext(params.get('next')) ?? SIGNED_IN_HOME))
-}
-
-/**
- * src/proxy.ts sends signed-out visitors to `/login?next=<where they wanted to
- * go>`, so a login page can round-trip that through `emailRedirectTo` and land
- * the user where they started. Nothing does that yet — task 02 owns the login
- * page — but honouring it here means the open-redirect check lives in one place
- * that has already been reviewed, rather than being written fresh later.
- *
- * Only same-origin *paths* pass: a leading `/`, but not `//host` or `/\host`
- * (both of which browsers read as protocol-relative), and no backslashes or
- * control characters that URL parsers disagree about.
- */
-function safeNext(value: string | null): string | null {
-  if (!value) return null
-  if (!value.startsWith('/')) return null
-  if (value.startsWith('//') || value.startsWith('/\\')) return null
-  for (const ch of value) {
-    const code = ch.codePointAt(0)!
-    if (ch === '\\' || code < 0x20 || code === 0x7f) return null
-  }
-  return value
 }
