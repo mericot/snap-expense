@@ -125,9 +125,21 @@ export async function POST(request: NextRequest) {
   }
 
   const { supabase, applyCookies } = createSupabaseRouteClient(request)
+
+  // `verification_type`, not the `type` we asked for, and the difference is not
+  // cosmetic. Asking for a `magiclink` gets you a `magiclink` token only if the
+  // user already exists; for an address Supabase has never seen, the same call
+  // creates the user and issues a **signup** token instead. GoTrue looks tokens
+  // up by (hash, type), so verifying a signup token as a magiclink matches
+  // nothing and comes back — misleadingly — as:
+  //
+  //   403 otp_expired "Email link is invalid or has expired"
+  //
+  // on a token generated microseconds earlier. Reading the type back off the
+  // response is what makes the very first sign-in to a fresh test address work.
   const { error: verifyError } = await supabase.auth.verifyOtp({
     token_hash: link.properties.hashed_token,
-    type: 'magiclink',
+    type: link.properties.verification_type,
   })
 
   if (verifyError) {

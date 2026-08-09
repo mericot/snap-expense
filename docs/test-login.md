@@ -37,11 +37,14 @@ NEXT_PUBLIC_TEST_LOGIN_EMAIL=test@snap-expenses.com
 handler uses it). The bypass mints the link with the admin API.
 
 If `TEST_LOGIN_EMAIL` names an address that does not exist in Supabase yet, the
-first sign-in creates it — but only once
-`db/migrations/2026-08-09-pin-security-definer-search-path.sql` has been applied
-to the project. Without it, creating *any* new user fails with `Database error
-saving new user`, which is what building this endpoint surfaced. Pointing
-`TEST_LOGIN_EMAIL` at an address that already has an account works either way.
+first sign-in creates it, with a free-plan subscription row, exactly as a real
+signup would.
+
+That requires `db/migrations/2026-08-09-pin-security-definer-search-path.sql`,
+which has been applied to the live project (2026-08-09). Without it, creating
+*any* new user fails with `Database error saving new user` — a pre-existing bug
+that building this endpoint surfaced. A freshly provisioned project gets the fix
+from `db/subscriptions.sql` directly.
 
 **Do not set these in Vercel's production environment.** The route refuses to
 run when `VERCEL_ENV=production` regardless, but the variables not being there
@@ -91,10 +94,24 @@ Responses:
    creates the user on first use, which is why there is no separate step for
    provisioning the test account. The useful field is
    `properties.hashed_token`.
-2. `verifyOtp({ token_hash, type: 'magiclink' })` on a request-scoped client
-   redeems that token for a session, and the cookie writes are attached to the
-   response — the same ordering `/auth/callback` relies on so that the proxy
-   sees a session on the very next request.
+2. `verifyOtp({ token_hash, type })` on a request-scoped client redeems that
+   token for a session, and the cookie writes are attached to the response —
+   the same ordering `/auth/callback` relies on so that the proxy sees a
+   session on the very next request.
+
+The `type` passed to step 2 is `properties.verification_type` from step 1, not
+the `magiclink` that step 1 asked for, and the difference is load bearing.
+Asking for a `magiclink` returns a `magiclink` token only when the user already
+exists; for an address Supabase has never seen, the same call creates the user
+and issues a **`signup`** token instead. GoTrue looks tokens up by (hash, type),
+so verifying a signup token as a magiclink matches nothing and fails with
+
+```
+403 otp_expired  "Email link is invalid or has expired"
+```
+
+on a token generated microseconds earlier. If the first sign-in to a fresh
+address ever starts failing that way again, this is the line to look at.
 
 ## What makes it safe
 
