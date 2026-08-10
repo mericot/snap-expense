@@ -128,7 +128,7 @@ export default function ContactPage() {
 
           {category === "dpa" && (
             <p className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-xs text-blue-800">
-              DPAs are available for Team plan customers. Please include your
+              DPAs are available for customers on a paid plan. Please include your
               organization name and any specific requirements. You can review
               our standard DPA at{" "}
               <Link

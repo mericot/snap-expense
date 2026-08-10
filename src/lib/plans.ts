@@ -121,9 +121,27 @@ const PRO: Plan = {
     'Search across every year',
   ],
   cta: { label: `Start ${TRIAL_DAYS}-day trial`, href: '/checkout?plan=pro', emphasis: 'primary' },
-  highlight: 'Most people pick this',
+  // Deliberately an opinion, not a usage statistic. The previous copy ("Most
+  // people pick this") asserted a distribution of choices that nobody has
+  // measured — the product has not launched. "Recommended" says who is
+  // speaking and cannot be falsified by the first month's numbers.
+  highlight: 'Recommended',
 }
 
+/**
+ * Withheld from launch. Team is intentionally still defined, still reachable
+ * through `getPlan('team')`, and still wired end to end (checkout, webhook,
+ * return page, `Subscription.plan`) — it is simply absent from `PLANS`, so
+ * `/pricing` never renders it and nothing links to `/checkout?plan=team`.
+ *
+ * That URL does still resolve for anyone who types it, which is the accepted
+ * cost of keeping re-launch to a one-line change. It is not an entitlement
+ * hole: reaching checkout is not the same as being charged, and Stripe will
+ * only take money against `STRIPE_TEAM_MONTHLY_PRICE_ID` if that price is
+ * live. Retiring the price in Stripe closes the path without a deploy.
+ *
+ * To relaunch: add TEAM back to `PLANS`.
+ */
 const TEAM: Plan = {
   id: 'team',
   name: 'Team',
@@ -139,8 +157,12 @@ const TEAM: Plan = {
   cta: { label: 'Add your team', href: '/checkout?plan=team', emphasis: 'outline-strong' },
 }
 
-/** Display order on `/pricing`. */
-export const PLANS: readonly Plan[] = [FREE, PRO, TEAM]
+/**
+ * Display order on `/pricing`. TEAM is held back from launch — see the comment
+ * above it. `BY_ID` below stays complete on purpose: an existing subscription
+ * row still has to resolve to a plan even when that plan is not for sale.
+ */
+export const PLANS: readonly Plan[] = [FREE, PRO]
 
 const BY_ID: Record<PlanId, Plan> = { free: FREE, pro: PRO, team: TEAM }
 

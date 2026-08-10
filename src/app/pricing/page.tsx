@@ -24,6 +24,10 @@ export const metadata: Metadata = {
  * and which one wins would otherwise depend on Tailwind's generated CSS order,
  * not on the order they appear in the class string. Flagged in the PR: the
  * right fix is a third `Button` variant.
+ *
+ * No plan in `PLANS` currently carries this emphasis — Team is held back from
+ * launch — so it renders nowhere today. Kept because relaunching Team is meant
+ * to be a one-line change to `PLANS`, and deleting this would make it two.
  */
 const OUTLINE_STRONG = 'border-text! text-text! hover:bg-surface-recessed'
 
@@ -123,9 +127,14 @@ export default function PricingPage() {
         downloadable either way.
       </p>
 
-      {/* flex-wrap + min-w 240 keeps this 3-up down to ~900px (3×240 + 2×16 gap
-          = 752px, inside the 852px available at 900px), 2-up at 768 and stacked
-          on a phone. Depends on border-box, which globals.css guarantees. */}
+      {/* Two cards since Team was held back from launch. flex-wrap + min-w 240
+          keeps them side by side down to 544px (2×240 + 16px gap = 496px, which
+          is exactly the width available once main's px-6 takes 48px) and stacks
+          them below that — so the wrap point sits under every common phone
+          rather than at the ~900px the three-card row needed. `flex-1` grows
+          each card to its max-w 320 and no further, leaving the pair centred
+          instead of spanning the full 1080. Depends on border-box, which
+          globals.css guarantees. */}
       <div className="mt-8 flex w-full flex-wrap justify-center gap-4">
         {PLANS.map((plan) => (
           <PlanCard key={plan.id} plan={plan} />
