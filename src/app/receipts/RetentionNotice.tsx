@@ -4,34 +4,41 @@ import { Card } from '@/components/ui'
 /**
  * Retention notice.
  *
- * The sentence below is legally reviewed copy and is reproduced verbatim. Do
- * not reword it, resegment it, or swap the em dashes.
+ * The previous copy said: "Receipt images and the data we read from them stay
+ * until you delete them, then sit in encrypted backups for 30 days before they
+ * are gone for good."
  *
- * ⚠ The "30 days" figure is an OPEN QUESTION, flagged in
- * `design_handoff_snapexpense_paid/README.md` and in
- * `docs/design-tasks/README.md`: it must match the real Supabase backup
- * lifecycle before launch, or the copy changes. It is reproduced here as
- * specified and deliberately not resolved on this branch. The global footer
- * makes the same promise ("Deleted 30 days after you delete the expense"), so
- * whatever the real window turns out to be, both places change together.
+ * The comment that used to sit here already recorded why that was wrong —
+ * receipt images are never stored at all, they are posted to /api/extract and
+ * discarded — and then reproduced the sentence anyway, on the grounds that it
+ * was legally reviewed and the branch was not the place to resolve it. Shipping
+ * it to the public is the place, so it is resolved now: the notice describes
+ * what the app actually does.
  *
- * There is a second, larger problem behind it: receipt *images* are never
- * stored at all today — they are posted to /api/extract and discarded. The
- * first clause is currently true only vacuously. It becomes load-bearing the
- * moment image storage ships. See the PR.
+ * Two things changed and one deliberately did not.
  *
- * `/legal/retention` does not exist yet. It is wired as a real href, following
- * the convention task 00 set for the footer's /legal/* links, so the gap stays
- * visible instead of being papered over with "#".
+ *   - Images: stated as never stored. True, and a stronger promise than the
+ *     one it replaces. Revisit the moment image storage ships.
+ *   - Account deletion: still promised, and now actually implemented. The route
+ *     behind it used to delete nothing at all (see /api/account/delete).
+ *   - The "30 days" backup window is UNCHANGED and still UNVERIFIED. It is
+ *     scoped to extracted expense data, which is genuinely stored, so the claim
+ *     is at least about a real thing now — but it must be checked against the
+ *     project's actual Supabase backup lifecycle before launch. It is repeated
+ *     on /legal/retention; both change together.
+ *
+ * ⚠ This copy was marked legally reviewed. It has been changed to stop it being
+ * untrue, which is the higher duty, but it should go back past a reviewer
+ * before the marketing push.
  */
 export default function RetentionNotice() {
   return (
     <Card padding="none" className="px-[18px] py-4">
       <p className="text-[13px] leading-[1.55] text-text-muted text-pretty">
         <strong className="font-semibold text-text">How long we keep this.</strong>{' '}
-        Receipt images and the data we read from them stay until you delete them, then sit in
-        encrypted backups for 30 days before they are gone for good. Deleting your account removes
-        everything.{' '}
+        The receipt image is read once and discarded — we never store it. The details we pull out
+        of it stay until you delete them, then sit in encrypted backups for 30 days before they are
+        gone for good. Deleting your account removes everything.{' '}
         <Link href="/legal/retention" className="underline">
           Retention policy
         </Link>

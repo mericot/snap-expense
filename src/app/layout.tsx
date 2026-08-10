@@ -4,16 +4,32 @@ import CookieConsentProvider from "@/components/CookieConsentProvider";
 import Footer from "@/components/Footer";
 import SessionProvider from "@/components/SessionProvider";
 import SubscriptionProvider from "@/components/SubscriptionProvider";
+import { siteUrl } from "@/lib/site-url";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "snapExpense",
+  // Without this, every Open Graph and canonical URL is resolved relative and
+  // Next warns on each build. It also has to be absolute for the generated
+  // opengraph-image to be shareable at all — social scrapers do not resolve
+  // relative image URLs.
+  metadataBase: new URL(siteUrl()),
+  title: {
+    default: "snapExpense",
+    // Pages set only their own name; the brand is appended here rather than
+    // retyped in every file.
+    template: "%s — snapExpense",
+  },
   description: "Snap a receipt, track your spending. AI-powered expense tracking made simple.",
   openGraph: {
     title: "snapExpense",
     description: "Snap a receipt, track your spending. AI-powered expense tracking made simple.",
     siteName: "snapExpense",
     type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "snapExpense",
+    description: "Snap a receipt, track your spending. AI-powered expense tracking made simple.",
   },
 };
 

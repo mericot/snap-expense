@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Data Processing Agreement | snapExpense",
+  title: "Data Processing Agreement",
   description:
     "Data Processing Agreement for snapExpense Team plan customers.",
 };

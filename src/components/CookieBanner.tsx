@@ -1,39 +1,37 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useCookieConsent } from './CookieConsentProvider'
 import { Button } from './ui'
 
 /**
- * Cookie consent banner.
+ * Cookie notice.
  *
- * The three buttons are deliberately the same size, the same order and the same
- * level. "Essential only" is a real button, not a text link, and "Accept all"
- * is not enlarged. Reject has to be as easy to reach as accept — that is a
- * legal requirement, not a style preference, and it is the single thing in this
- * file most likely to get changed by accident.
+ * This used to offer an Analytics category — a checkbox, an "Accept all" and an
+ * "Essential only". It was asking permission for something that does not exist:
+ * no analytics script is loaded anywhere in the app, and no analytics cookie is
+ * ever set. Consenting and declining produced exactly the same behaviour, which
+ * makes the choice theatre, and a consent UI that does nothing is worse than no
+ * consent UI — it teaches people their choice is meaningless.
+ *
+ * So while only strictly-necessary cookies exist, this is a notice rather than a
+ * chooser, and dismissing it records the same decision "Essential only" always
+ * did. Strictly-necessary cookies do not require consent, so nothing is lost.
+ *
+ * CookieConsentProvider is deliberately left intact, analytics gate and all.
+ * It documents itself as the hook the first non-essential script should use, and
+ * that is still the right design — when analytics genuinely ships, the category
+ * UI comes back here and the provider is already waiting for it.
+ *
+ * The rule that used to be flagged here still applies to whatever replaces this:
+ * reject must be as easy to reach as accept. That is a legal requirement, not a
+ * style preference. It is trivially satisfied while there is nothing to reject.
  */
 export default function CookieBanner() {
-  const {
-    hydrated,
-    bannerOpen,
-    panelOpen,
-    setPanelOpen,
-    consent,
-    acceptAll,
-    essentialOnly,
-    saveChoice,
-    closeBanner,
-  } = useCookieConsent()
+  const { hydrated, bannerOpen, consent, essentialOnly, closeBanner } = useCookieConsent()
 
   const ref = useRef<HTMLDivElement>(null)
-
-  // The panel's checkbox defaults to whatever is already recorded (the banner
-  // is reopenable from the footer) and is only overridden once the user touches
-  // it. Deriving it this way avoids an effect that mirrors props into state.
-  const [analyticsOverride, setAnalyticsOverride] = useState<boolean | null>(null)
-  const analytics = analyticsOverride ?? consent?.analytics ?? false
 
   // Announce the dialog and put the keyboard inside it when it appears.
   useEffect(() => {
@@ -73,86 +71,24 @@ export default function CookieBanner() {
       </h2>
 
       <p id="cookie-banner-body" className="max-w-[520px] text-[13px] leading-[1.5] text-text-muted">
-        We use cookies that keep you signed in, and nothing else unless you say yes. Analytics
-        helps us see which features get used.{' '}
-        <Link href="/legal/cookies" className="underline">
-          Cookie policy
+        We use cookies that keep you signed in, and nothing else. No analytics, no tracking, no
+        advertising cookies.{' '}
+        {/* Was /legal/cookies, which has never existed — a second 404 in the
+            legal links, alongside the retention one. Points at the privacy
+            policy, which now states the cookie position directly. */}
+        <Link href="/legal/privacy" className="underline">
+          Privacy policy
         </Link>
       </p>
 
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={essentialOnly}>
-          Essential only
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          aria-expanded={panelOpen}
-          aria-controls="cookie-category-panel"
-          onClick={() => {
-            if (!panelOpen) setAnalyticsOverride(null)
-            setPanelOpen(!panelOpen)
-          }}
-        >
-          Choose
-        </Button>
-        <Button variant="primary" size="sm" onClick={acceptAll}>
-          Accept all
+        {/* Records the same decision the old "Essential only" button did, so
+            the stored consent shape is unchanged and the provider needs no
+            migration. */}
+        <Button variant="primary" size="sm" onClick={essentialOnly}>
+          Got it
         </Button>
       </div>
-
-      {panelOpen && (
-        /* SCAFFOLD — the per-category panel has not been designed yet. This is
-           the minimum that makes "Choose" honest: a real, keyboard-reachable
-           control per category. It needs a design pass before release. */
-        <div
-          id="cookie-category-panel"
-          className="w-full border-t border-border pt-4 text-[13px] text-text-muted"
-        >
-          <fieldset className="flex flex-col gap-3">
-            <legend className="sr-only">Cookie categories</legend>
-
-            <label className="flex items-start gap-3">
-              <input
-                type="checkbox"
-                checked
-                disabled
-                readOnly
-                className="mt-[3px]"
-                aria-describedby="cookie-cat-essential"
-              />
-              <span>
-                <span className="block font-semibold text-text-title">Essential</span>
-                <span id="cookie-cat-essential" className="block text-text-tertiary">
-                  Keeps you signed in. Always on, and cannot be turned off.
-                </span>
-              </span>
-            </label>
-
-            <label className="flex items-start gap-3">
-              <input
-                type="checkbox"
-                checked={analytics}
-                onChange={(e) => setAnalyticsOverride(e.target.checked)}
-                className="mt-[3px]"
-                aria-describedby="cookie-cat-analytics"
-              />
-              <span>
-                <span className="block font-semibold text-text-title">Analytics</span>
-                <span id="cookie-cat-analytics" className="block text-text-tertiary">
-                  Shows us which features get used. Off until you turn it on.
-                </span>
-              </span>
-            </label>
-          </fieldset>
-
-          <div className="mt-4">
-            <Button variant="outline" size="sm" onClick={() => saveChoice(analytics)}>
-              Save choices
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -13,8 +13,18 @@ import { Badge } from './ui'
 
 const STATEMENTS = [
   {
+    // Was: "Encrypted at rest. Deleted 30 days after you delete the expense."
+    //
+    // That described storage the app does not do. Receipt images are posted to
+    // /api/extract, read once, and discarded — they are never written anywhere,
+    // so there was nothing to encrypt at rest and nothing to delete after 30
+    // days. The claim was false in the app's own favour, which is the worse
+    // direction for a statement in a trust footer.
+    //
+    // What replaces it is both true and a stronger commitment. If image storage
+    // ever ships, this is the first line that has to change.
     title: 'Receipt images',
-    body: 'Encrypted at rest. Deleted 30 days after you delete the expense.',
+    body: 'Read once to pull out the total, then discarded. We never store the image.',
   },
   {
     title: 'Never sold',
@@ -30,9 +40,9 @@ const STATEMENTS = [
   },
 ]
 
-// The six /legal/* routes below do not exist yet — the legal pages are separate
-// work with real copy. The hrefs are wired as specified rather than pointed at
-// "#", so the gap stays visible instead of being hidden.
+// All /legal/* routes linked below now exist. (This comment used to say they
+// did not; they were built out since, and /legal/retention was the last gap —
+// it was linked from the retention notice on /receipts while 404ing.)
 
 // #71717a on #fafafa measures 4.63:1 — passes WCAG AA for 12px text. The
 // previous footer used #a1a1aa here, which is 2.46:1 and fails.
@@ -65,6 +75,9 @@ export default function Footer() {
           </Link>
           <Link href="/legal/refunds" className={LINK_CLASS}>
             Refunds
+          </Link>
+          <Link href="/legal/retention" className={LINK_CLASS}>
+            Retention
           </Link>
           {/* "Cookies" sits in link order but is a control, not a destination. */}
           <CookieSettingsButton className={`cursor-pointer ${LINK_CLASS}`} />

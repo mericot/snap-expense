@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Subprocessors | snapExpense",
+  title: "Subprocessors",
   description:
     "Third-party subprocessors that process data on behalf of snapExpense.",
 };
@@ -32,10 +32,25 @@ const SUBPROCESSORS: Subprocessor[] = [
     location: "United States",
   },
   {
+    // Analytics was listed here and in the privacy policy, but no analytics
+    // service is installed — nothing imports one and no such cookie is ever
+    // set. Disclosing processing that does not happen is still an inaccurate
+    // disclosure, so the claim is gone rather than left as a safe overstatement.
+    // Re-add it, in both places, if and when analytics actually ships.
     name: "Vercel, Inc.",
-    purpose: "Application hosting and analytics",
+    purpose: "Application hosting",
     dataProcessed:
-      "Anonymous usage data (page views, performance metrics). No personally identifiable information.",
+      "Request metadata required to serve the application (IP address, user agent).",
+    location: "United States",
+  },
+  {
+    // Stripe was absent from this list and from the privacy policy while being
+    // the processor handling every payment — the most significant omission of
+    // the three.
+    name: "Stripe, Inc.",
+    purpose: "Subscription billing and payment processing",
+    dataProcessed:
+      "Email address, billing address, payment card details (entered directly with Stripe; never transmitted to or stored by snapExpense)",
     location: "United States",
   },
 ];

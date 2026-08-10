@@ -10,7 +10,7 @@ import {
 } from '@/lib/plans'
 
 export const metadata: Metadata = {
-  title: 'Pricing — snapExpense',
+  title: 'Pricing',
   description:
     'Start free, no card required. Upgrade when your receipts pile up.',
 }

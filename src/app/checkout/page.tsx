@@ -6,7 +6,7 @@ import { paidPlanIdFromParam } from '@/lib/checkout-intent'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 
 export const metadata: Metadata = {
-  title: 'Checkout — snapExpense',
+  title: 'Checkout',
   description: 'Set up your snapExpense subscription and start your free trial.',
   robots: { index: false, follow: false },
 }

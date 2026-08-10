@@ -217,12 +217,21 @@ export default function SettingsPage() {
                     setDeleting(true)
                     try {
                       const res = await fetch('/api/account/delete', { method: 'POST' })
-                      if (!res.ok) throw new Error('Delete failed')
+                      if (!res.ok) {
+                        // The route distinguishes between failures, and the
+                        // difference matters to the user: a failed Stripe
+                        // cancellation means the account is still there and
+                        // still billing, which "please try again" would talk
+                        // them straight past. Show what the server actually
+                        // said and fall back only if it said nothing.
+                        const body = await res.json().catch(() => null)
+                        throw new Error(body?.error || 'Something went wrong. Please try again.')
+                      }
                       await supabase.auth.signOut()
                       window.location.href = '/login'
-                    } catch {
+                    } catch (err) {
                       setDeleting(false)
-                      alert('Something went wrong. Please try again.')
+                      alert(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
                     }
                   }}
                 >
