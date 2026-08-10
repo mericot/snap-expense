@@ -8,6 +8,7 @@ import {
 } from '@stripe/react-stripe-js'
 import Link from 'next/link'
 import { REFUND_WINDOW_DAYS } from '@/lib/plans'
+import PurchaseSteps from '@/components/PurchaseSteps'
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
@@ -36,6 +37,11 @@ export default function CheckoutEmbed({
   return (
     <main className="flex flex-1 flex-col items-center px-6 py-10">
       <div className="w-full max-w-[800px]">
+        {/* Step two of the same three the login page showed. Whether the buyer
+            detoured through sign-in or came straight here already signed in,
+            the flow reads the same length from this point on. */}
+        <PurchaseSteps current={2} className="mx-auto mb-8" />
+
         <div className="mb-8">
           <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-text">
             Subscribe to snapExpense {planName}
