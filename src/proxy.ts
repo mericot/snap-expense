@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { safeNext } from '@/lib/safe-next'
 
 /**
  * Server-side auth gate. (Next.js 16 renamed `middleware` to `proxy`; same
@@ -105,7 +106,13 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   if (user && matches(pathname, PUBLIC_ONLY)) {
-    return redirectPreservingCookies(request, response, SIGNED_IN_HOME)
+    // A signed-in visitor on /login is usually someone who wandered back to it,
+    // and /receipts is the right place for them. But `/login?next=…` is not
+    // that: it is a purchase that was interrupted, and until now arriving here
+    // with a live session threw the `next` away and dropped them on /receipts —
+    // the buy button silently failing for the one visitor most likely to
+    // complete. Honour the destination they were headed for.
+    return redirectPreservingCookies(request, response, signedInTarget(request, pathname))
   }
 
   if (!user && matches(pathname, AUTHENTICATED_ONLY)) {
@@ -116,6 +123,30 @@ export async function proxy(request: NextRequest) {
   }
 
   return response
+}
+
+/**
+ * Where to send a signed-in visitor who has landed on a signed-out-only page.
+ *
+ * Only `/login` carries a `next`, and only `safeNext` decides whether one is
+ * usable — the same rule `/auth/callback` and `/api/test-login` apply, so there
+ * is no second opinion on what counts as our own path.
+ *
+ * The extra condition beyond `safeNext` is the loop: `/login?next=/login`
+ * passes every open-redirect check there is and still bounces the browser
+ * between the same two states until it gives up. Any `next` pointing back at a
+ * page in `PUBLIC_ONLY` is discarded for that reason, not a security one.
+ */
+function signedInTarget(request: NextRequest, pathname: string): string {
+  if (pathname !== SIGNED_OUT_HOME) return SIGNED_IN_HOME
+
+  const next = safeNext(request.nextUrl.searchParams.get('next'))
+  if (!next) return SIGNED_IN_HOME
+
+  const nextPath = next.split(/[?#]/, 1)[0]
+  if (matches(nextPath, PUBLIC_ONLY)) return SIGNED_IN_HOME
+
+  return next
 }
 
 function redirectPreservingCookies(request: NextRequest, source: NextResponse, to: string) {

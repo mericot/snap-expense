@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import CheckoutEmbed from './CheckoutEmbed'
 import { getPlan, type PlanId } from '@/lib/plans'
+import { paidPlanIdFromParam } from '@/lib/checkout-intent'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 
 export const metadata: Metadata = {
@@ -51,7 +52,11 @@ export default async function CheckoutPage({
   ) {
     redirect('/receipts')
   }
-  const planId: PlanId = plan === 'team' ? 'team' : 'pro'
+  // Shared with the login page rather than repeated here. The two read the
+  // same `?plan=` — one to name the plan on the sign-in detour, the other to
+  // price it — and a copy that drifted would show one plan and charge for
+  // another.
+  const planId: PlanId = paidPlanIdFromParam(plan)
   const priceId = priceIdForPlan(planId)
 
   if (!priceId) {

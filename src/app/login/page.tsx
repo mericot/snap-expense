@@ -4,7 +4,18 @@ import { Suspense, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { Button, Card, Input, Label } from '@/components/ui'
+import { Button, Card, Input, Label, cx } from '@/components/ui'
+import PurchaseSteps from '@/components/PurchaseSteps'
+import { checkoutIntent, type CheckoutIntent } from '@/lib/checkout-intent'
+import {
+  TRIAL_DAYS,
+  chargePerCycleCents,
+  chargePeriodLabel,
+  billingIntervalMonths,
+  formatMoney,
+  formatMoneyHeadline,
+  headlineAmountCents,
+} from '@/lib/plans'
 
 export const dynamic = 'force-dynamic'
 
@@ -90,6 +101,11 @@ function LoginPageInner() {
   // the address *is* the way in, which is the whole point of it being one
   // specific address rather than a mode.
   const isTestLogin = TEST_LOGIN_EMAIL !== null && email.trim().toLowerCase() === TEST_LOGIN_EMAIL
+
+  // Non-null when `/checkout` sent this visitor here to sign in first. It is
+  // what turns the page from "Sign in to manage your receipts" — a true
+  // sentence about the wrong subject — into step one of a purchase.
+  const intent = checkoutIntent(next)
 
   const sentHeadingRef = useRef<HTMLHeadingElement>(null)
 
@@ -232,13 +248,37 @@ function LoginPageInner() {
         </div>
       </header>
 
-      <main className="flex flex-1 flex-col items-center bg-surface-recessed px-8 pt-[72px] pb-[84px]">
-        <h1 className="text-[30px] font-bold tracking-[-0.02em] text-text">snapExpense</h1>
-        <p className="mt-2 text-[15px] text-text-tertiary">Sign in to manage your receipts</p>
+      <main
+        className={cx(
+          'flex flex-1 flex-col items-center bg-surface-recessed px-8 pb-[84px]',
+          // The stepper takes the top of the page when there is one, so the
+          // heading starts lower without the whole panel drifting down.
+          intent ? 'pt-[52px]' : 'pt-[72px]',
+        )}
+      >
+        {intent && <PurchaseSteps current={1} className="mb-7" />}
+
+        {/* Deliberately not "Create your account", which the preview used and
+            which is wrong for the visitor this most often catches: an existing
+            free user, signed out, upgrading. They have an account already, and
+            being told to make one is its own kind of "this is broken". The
+            magic link covers both cases identically, so the heading names the
+            purchase — true either way — and leaves the account out of it. */}
+        <h1 className="text-[30px] font-bold tracking-[-0.02em] text-text text-balance text-center">
+          {intent ? `Set up your ${intent.plan.name} subscription` : 'snapExpense'}
+        </h1>
+        <p className="mt-2 text-[15px] text-text-tertiary text-balance text-center">
+          {intent
+            ? 'Confirm your email to continue — nothing is charged yet.'
+            : 'Sign in to manage your receipts'}
+        </p>
+
+        {intent && <PlanSummary intent={intent} />}
 
       {status === 'sent' ? (
         <SentPanel
           email={email}
+          intent={intent}
           headingRef={sentHeadingRef}
           onUseDifferentEmail={handleUseDifferentEmail}
         />
@@ -303,7 +343,9 @@ function LoginPageInner() {
                   ? 'Sending…'
                   : cooldown > 0
                     ? `Resend in ${cooldown}s`
-                    : 'Send magic link'}
+                    : intent
+                      ? 'Email me a link to continue'
+                      : 'Send magic link'}
             </Button>
 
             <ConsentLine />
@@ -312,6 +354,45 @@ function LoginPageInner() {
       )}
     </main>
     </>
+  )
+}
+
+/**
+ * What the visitor is part-way through buying, restated on the page that
+ * interrupted them.
+ *
+ * Every number here is derived through `src/lib/plans.ts`, never retyped —
+ * that file opens by insisting on it, because a price typed into copy is a
+ * price that will eventually disagree with the one Stripe charges. The
+ * headline formatter drops `.00`; the charged amount keeps it, which is the
+ * distinction plans.ts draws between a marketing figure and a transactional
+ * one.
+ */
+function PlanSummary({ intent }: { intent: CheckoutIntent }) {
+  const { plan } = intent
+  const months = billingIntervalMonths(plan)
+
+  return (
+    <div className="mt-5 w-full max-w-[400px] rounded-card border border-border bg-surface p-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[14px] font-semibold text-text">{plan.name}</span>
+        <span className="text-[14px] text-text tabular-nums">
+          {formatMoneyHeadline(headlineAmountCents(plan))}{' '}
+          <span className="text-[12.5px] text-text-tertiary">{plan.priceCaption}</span>
+        </span>
+      </div>
+
+      <div className="my-3 h-px bg-border" />
+
+      <p className="text-[12.5px] leading-[1.5] text-text-tertiary">
+        <strong className="font-semibold text-text-title tabular-nums">
+          {TRIAL_DAYS} days free
+        </strong>
+        , then {formatMoney(chargePerCycleCents(plan))}
+        {months === null ? '' : ` ${chargePeriodLabel(months)}`}. Cancel any time before then and
+        you are not charged.
+      </p>
+    </div>
   )
 }
 
@@ -346,10 +427,12 @@ function ConsentLine() {
  */
 function SentPanel({
   email,
+  intent,
   headingRef,
   onUseDifferentEmail,
 }: {
   email: string
+  intent: CheckoutIntent | null
   headingRef: React.RefObject<HTMLHeadingElement | null>
   onUseDifferentEmail: () => void
 }) {
@@ -363,10 +446,23 @@ function SentPanel({
         <h2 ref={headingRef} tabIndex={-1} className="text-[15px] font-semibold text-text">
           Check your email
         </h2>
+        {/* This is the point in the purchase where the buyer leaves the browser
+            entirely, so it is where the thread is most easily lost. Two extra
+            sentences, only when money is involved: where the link puts them,
+            and that nothing has happened to their card. The full redesign this
+            panel still needs is a separate piece of work. */}
         <p className="text-[13px] leading-[1.5] text-text-tertiary">
-          We sent a magic link to <strong className="font-semibold text-text">{email}</strong>. Click
-          it to sign in. If you don&apos;t see it, check your spam or junk folder.
+          We sent a magic link to <strong className="font-semibold text-text">{email}</strong>.{' '}
+          {intent
+            ? `Click it and you will come straight back here to set up ${intent.plan.name}.`
+            : 'Click it to sign in.'}{' '}
+          If you don&apos;t see it, check your spam or junk folder.
         </p>
+        {intent && (
+          <p className="text-[13px] leading-[1.5] text-text-faint">
+            Nothing has been charged yet.
+          </p>
+        )}
         <button
           type="button"
           onClick={onUseDifferentEmail}
