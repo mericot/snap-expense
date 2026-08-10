@@ -170,10 +170,10 @@ export default function PrivacyPage() {
               For privacy questions, data access requests, or account
               deletion, email us at{" "}
               <a
-                href="mailto:mericot.merit@gmail.com"
+                href="mailto:support@snap-expenses.com"
                 className="underline hover:text-zinc-900"
               >
-                mericot.merit@gmail.com
+                support@snap-expenses.com
               </a>
               .
             </p>

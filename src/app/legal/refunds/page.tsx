@@ -40,10 +40,10 @@ export default function RefundsPage() {
             <p>
               Email{" "}
               <a
-                href="mailto:mericot.merit@gmail.com"
+                href="mailto:support@snap-expenses.com"
                 className="underline hover:text-zinc-900"
               >
-                mericot.merit@gmail.com
+                support@snap-expenses.com
               </a>{" "}
               with the email address on your account. We aim to process refund
               requests within 3 business days. Refunds are issued to the
@@ -92,10 +92,10 @@ export default function RefundsPage() {
             <p>
               Refund questions? Email{" "}
               <a
-                href="mailto:mericot.merit@gmail.com"
+                href="mailto:support@snap-expenses.com"
                 className="underline hover:text-zinc-900"
               >
-                mericot.merit@gmail.com
+                support@snap-expenses.com
               </a>
               .
             </p>

@@ -11,7 +11,7 @@ const CATEGORIES = [
   { value: "dpa", label: "DPA request" },
 ] as const;
 
-const CONTACT_EMAIL = "mericot.merit@gmail.com";
+const CONTACT_EMAIL = "support@snap-expenses.com";
 
 const SUBJECT_PREFIX: Record<string, string> = {
   general: "[snapExpense] General inquiry",

@@ -122,10 +122,10 @@ export default function SubprocessorsPage() {
             <p>
               Questions about our subprocessors? Email{" "}
               <a
-                href="mailto:mericot.merit@gmail.com"
+                href="mailto:support@snap-expenses.com"
                 className="underline hover:text-zinc-900"
               >
-                mericot.merit@gmail.com
+                support@snap-expenses.com
               </a>
               .
             </p>
