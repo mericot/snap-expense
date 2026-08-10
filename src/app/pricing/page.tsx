@@ -12,7 +12,7 @@ import {
 export const metadata: Metadata = {
   title: 'Pricing — snapExpense',
   description:
-    'Start free. Upgrade when your receipts pile up. No card needed to try it.',
+    'Start free, no card required. Upgrade when your receipts pile up.',
 }
 
 /**
@@ -119,8 +119,8 @@ export default function PricingPage() {
         Start free. Upgrade when your receipts pile up.
       </h1>
       <p className="mt-[10px] max-w-[460px] text-center text-[15px] leading-[1.5] text-text-tertiary text-pretty">
-        No card needed to try it. Cancel in two clicks, and your receipts stay downloadable
-        either way.
+        Free needs no card. Cancel a paid plan in two clicks, and your receipts stay
+        downloadable either way.
       </p>
 
       {/* flex-wrap + min-w 240 keeps this 3-up down to ~900px (3×240 + 2×16 gap
