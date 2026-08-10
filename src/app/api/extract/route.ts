@@ -2,6 +2,7 @@ import Anthropic, { APIConnectionTimeoutError, RateLimitError, APIError } from '
 import { NextRequest, NextResponse } from 'next/server'
 import { CATEGORIES } from '@/lib/categories'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { createSupabaseAdmin } from '@/lib/supabase-admin'
 import sharp from 'sharp'
 import heicConvert from 'heic-convert'
 
@@ -22,7 +23,6 @@ export async function POST(req: NextRequest) {
   // Set once the monthly quota has been consumed, so the catch block knows
   // whether there is anything to give back. See the refund note there.
   let quotaConsumedBy: string | null = null
-  let supabaseForRefund: Awaited<ReturnType<typeof createSupabaseServerClient>> | null = null
 
   try {
     // Fail closed on a missing or unparseable Content-Length.
@@ -55,9 +55,25 @@ export async function POST(req: NextRequest) {
 
     const isPaid = sub && sub.plan !== 'free' && (sub.status === 'active' || sub.status === 'trialing')
 
+    // Metering runs on the service role, not the caller's session.
+    //
+    // PostgREST publishes every public function as /rest/v1/rpc/<name>, and
+    // Supabase grants EXECUTE to `authenticated` by default. These functions are
+    // `security definer` and take the user id as an argument, so called with the
+    // caller's own session they are just an HTTP endpoint anyone can hit with
+    // any id — which makes the quota unenforceable. `refund_extraction_quota` is
+    // the sharp end: a loop against it zeroes your own counter and buys
+    // unlimited extractions.
+    //
+    // EXECUTE has been revoked from anon and authenticated (see
+    // db/migrations/2026-08-10-restrict-rpc-execute.sql). The service role is
+    // exempt from that, and it is the only context where `p_user_id` is a value
+    // this server decided rather than one a caller supplied.
+    const admin = createSupabaseAdmin()
+
     // Burst brake, applied to everyone including paid accounts. Kept ahead of
     // reading the body so a flood costs as little as possible.
-    const { data: allowed, error: rlError } = await supabase.rpc('check_rate_limit', {
+    const { data: allowed, error: rlError } = await admin.rpc('check_rate_limit', {
       p_user_id: user.id,
       p_max_requests: RATE_LIMIT_PER_HOUR,
     })
@@ -102,7 +118,7 @@ export async function POST(req: NextRequest) {
     // done — so a malformed request cannot burn someone's allowance and a
     // rejected one costs no CPU.
     if (!isPaid) {
-      const { data: withinQuota, error: quotaError } = await supabase.rpc('check_extraction_quota', {
+      const { data: withinQuota, error: quotaError } = await admin.rpc('check_extraction_quota', {
         p_user_id: user.id,
         p_max_extractions: FREE_MONTHLY_LIMIT,
       })
@@ -116,7 +132,6 @@ export async function POST(req: NextRequest) {
       // check. Recorded so the catch block can hand it back if what follows
       // fails for a reason that is ours.
       quotaConsumedBy = user.id
-      supabaseForRefund = supabase
 
       if (!withinQuota) {
         return NextResponse.json(
@@ -202,8 +217,10 @@ Rules:
     // 403 directly rather than throwing, so it never lands here. Best effort by
     // design — if the refund itself fails there is nothing useful left to do,
     // and failing the request twice helps nobody.
-    if (quotaConsumedBy && supabaseForRefund) {
-      const { error: refundError } = await supabaseForRefund.rpc('refund_extraction_quota', {
+    if (quotaConsumedBy) {
+      // A fresh admin client: the one above is scoped inside the try block, and
+      // this path is reachable from a throw that happened before it existed.
+      const { error: refundError } = await createSupabaseAdmin().rpc('refund_extraction_quota', {
         p_user_id: quotaConsumedBy,
       })
       if (refundError) console.error('[/api/extract] quota refund failed', refundError)
