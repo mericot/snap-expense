@@ -1,6 +1,7 @@
 import type Stripe from 'stripe'
 import { stripe } from '@/lib/stripe'
 import { createSupabaseAdmin } from '@/lib/supabase-admin'
+import { epochToISO, itemPeriodEnd } from '@/lib/stripe-subscription'
 import type { PlanId } from '@/lib/plans'
 
 function priceToPlan(priceId: string): PlanId {
@@ -11,14 +12,6 @@ function priceToPlan(priceId: string): PlanId {
     return 'team'
   }
   return 'free'
-}
-
-function epochToISO(epoch: number | null): string | null {
-  return epoch ? new Date(epoch * 1000).toISOString() : null
-}
-
-function itemPeriodEnd(subscription: Stripe.Subscription): number | null {
-  return subscription.items.data[0]?.current_period_end ?? null
 }
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {

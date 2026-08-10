@@ -9,11 +9,32 @@ import { Button, Card } from '@/components/ui'
 import AppHeader from '@/app/receipts/AppHeader'
 import type { Subscription } from '@/lib/supabase'
 
+const PERIOD_DATE = new Intl.DateTimeFormat('en-US', {
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+})
+
+/**
+ * "March 18, 2027" from a `timestamptz`.
+ *
+ * Unlike `expenses.date` — which receipts/format.ts goes out of its way *not*
+ * to hand to `new Date` — `current_period_end` is a real instant, so parsing it
+ * and rendering it in the reader's timezone is the correct thing: the period
+ * ends at one moment worldwide.
+ */
+function periodDate(iso: string | null | undefined) {
+  if (!iso) return null
+  const date = new Date(iso)
+  return Number.isNaN(date.getTime()) ? null : PERIOD_DATE.format(date)
+}
+
 export default function SettingsPage() {
   const { session, loading } = useSession()
   const [deleting, setDeleting] = useState(false)
   const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [portalLoading, setPortalLoading] = useState(false)
+  const [billingBusy, setBillingBusy] = useState(false)
 
   useEffect(() => {
     if (!session) return
@@ -40,6 +61,39 @@ export default function SettingsPage() {
     }
   }, [])
 
+  /**
+   * Cancelling does not end the subscription on the spot — it schedules it to
+   * stop renewing, which is why the same call resumes it. Both directions write
+   * Stripe's answer back into local state so the section re-renders without a
+   * reload, and without waiting for the webhook to land.
+   */
+  const setCancellation = useCallback(async (action: 'cancel' | 'resume') => {
+    setBillingBusy(true)
+    try {
+      const res = await fetch('/api/stripe/subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Request failed')
+      setSubscription((current) =>
+        current
+          ? {
+              ...current,
+              status: data.status,
+              current_period_end: data.current_period_end,
+              cancel_at_period_end: data.cancel_at_period_end,
+            }
+          : current
+      )
+    } catch {
+      alert('Something went wrong. Please try again.')
+    } finally {
+      setBillingBusy(false)
+    }
+  }, [])
+
   if (loading || !session) return null
 
   const email = session.user.email
@@ -47,6 +101,25 @@ export default function SettingsPage() {
     ? subscription.plan.charAt(0).toUpperCase() + subscription.plan.slice(1)
     : 'Free'
   const hasBilling = !!subscription?.stripe_customer_id
+
+  // Free plans have no Stripe subscription to act on, and one Stripe has
+  // already ended can no longer be cancelled or resumed.
+  const isCancellable =
+    !!subscription?.stripe_subscription_id && subscription.status !== 'canceled'
+  const periodEnd = periodDate(subscription?.current_period_end)
+
+  let renewalNote: string | null = null
+  if (isCancellable && subscription?.cancel_at_period_end) {
+    renewalNote = periodEnd
+      ? `Your ${planName} plan ends on ${periodEnd}. You keep everything until then, and move to Free after.`
+      : `Your ${planName} plan ends when the current billing period does. You keep everything until then.`
+  } else if (isCancellable && subscription?.status === 'trialing') {
+    renewalNote = periodEnd
+      ? `Your trial ends on ${periodEnd} — that is when the first charge happens.`
+      : 'Your trial is running. Cancel before it ends and you are never charged.'
+  } else if (isCancellable && periodEnd) {
+    renewalNote = `Renews on ${periodEnd}.`
+  }
 
   return (
     <>
@@ -77,8 +150,10 @@ export default function SettingsPage() {
                 <p className="mt-1 text-[13px] text-text-tertiary">
                   You are on the <strong className="font-semibold text-text">{planName}</strong> plan.
                   {subscription?.status === 'trialing' && ' (trial)'}
-                  {subscription?.cancel_at_period_end && ' — cancels at end of period'}
                 </p>
+                {renewalNote && (
+                  <p className="mt-1 text-[13px] text-text-tertiary">{renewalNote}</p>
+                )}
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button href="/pricing" variant="outline" size="sm" className="no-underline">
                     View plans
@@ -91,6 +166,37 @@ export default function SettingsPage() {
                       onClick={openPortal}
                     >
                       {portalLoading ? 'Loading…' : 'Manage billing'}
+                    </Button>
+                  )}
+                  {isCancellable && subscription?.cancel_at_period_end && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={billingBusy}
+                      onClick={() => setCancellation('resume')}
+                    >
+                      {billingBusy ? 'Working…' : 'Resume subscription'}
+                    </Button>
+                  )}
+                  {isCancellable && !subscription?.cancel_at_period_end && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-danger"
+                      disabled={billingBusy}
+                      onClick={() => {
+                        // Name the date in the prompt. "Are you sure?" makes
+                        // people guess whether they lose access tonight; the
+                        // whole point of cancelling at period end is that they
+                        // do not, so say so before they decide.
+                        const message = periodEnd
+                          ? `Cancel your ${planName} plan? It stays active until ${periodEnd}, then you move to the Free plan. You can resume any time before then.`
+                          : `Cancel your ${planName} plan? It stays active until the end of the current billing period, then you move to the Free plan.`
+                        if (!window.confirm(message)) return
+                        setCancellation('cancel')
+                      }}
+                    >
+                      {billingBusy ? 'Working…' : 'Cancel subscription'}
                     </Button>
                   )}
                 </div>
