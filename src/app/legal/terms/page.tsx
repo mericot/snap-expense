@@ -55,10 +55,10 @@ export default function TermsPage() {
               activity that occurs under your snapExpense account. Notify us
               promptly at{" "}
               <a
-                href="mailto:mericot.merit@gmail.com"
+                href="mailto:support@snap-expenses.com"
                 className="underline hover:text-zinc-900"
               >
-                mericot.merit@gmail.com
+                support@snap-expenses.com
               </a>{" "}
               if you suspect unauthorized access.
             </p>
@@ -126,10 +126,10 @@ export default function TermsPage() {
               You may request a full refund within 14 days of any charge. To
               request a refund, email us at{" "}
               <a
-                href="mailto:mericot.merit@gmail.com"
+                href="mailto:support@snap-expenses.com"
                 className="underline hover:text-zinc-900"
               >
-                mericot.merit@gmail.com
+                support@snap-expenses.com
               </a>
               . Refunds are processed to the original payment method. See our{" "}
               <Link
@@ -288,10 +288,10 @@ export default function TermsPage() {
             <p>
               Questions about these Terms? Email us at{" "}
               <a
-                href="mailto:mericot.merit@gmail.com"
+                href="mailto:support@snap-expenses.com"
                 className="underline hover:text-zinc-900"
               >
-                mericot.merit@gmail.com
+                support@snap-expenses.com
               </a>
               .
             </p>
