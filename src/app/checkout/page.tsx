@@ -1,8 +1,14 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import CheckoutEmbed from './CheckoutEmbed'
-import { getPlan, type PlanId } from '@/lib/plans'
-import { paidPlanIdFromParam } from '@/lib/checkout-intent'
+import {
+  billingCadenceLabel,
+  billingIntervalMonths,
+  getPlan,
+  type BillingCycle,
+  type PlanId,
+} from '@/lib/plans'
+import { billingCycleFromParam, paidPlanIdFromParam } from '@/lib/checkout-intent'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 
 export const metadata: Metadata = {
@@ -11,23 +17,32 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 }
 
-function priceIdForPlan(planId: PlanId): string | undefined {
-  switch (planId) {
-    case 'pro':
-      return process.env.STRIPE_PRO_YEARLY_PRICE_ID
-    case 'team':
-      return process.env.STRIPE_TEAM_MONTHLY_PRICE_ID
-    default:
-      return undefined
+/**
+ * The Stripe price for a plan on a given cycle.
+ *
+ * Returning `undefined` is how a plan is switched off: the page redirects to
+ * `/pricing` when there is no id. That is the second of the two gates keeping
+ * hidden Team unreachable — leaving `STRIPE_TEAM_MONTHLY_PRICE_ID` unset in
+ * production makes `/checkout?plan=team` bounce, whatever anyone types.
+ */
+function priceIdFor(planId: PlanId, cycle: BillingCycle): string | undefined {
+  if (planId === 'pro') {
+    return cycle === 'monthly'
+      ? process.env.STRIPE_PRO_MONTHLY_PRICE_ID
+      : process.env.STRIPE_PRO_YEARLY_PRICE_ID
   }
+  // Team is seat-based monthly only; billingCycleFromParam already collapses
+  // any other request to its default, so there is one price to return.
+  if (planId === 'team') return process.env.STRIPE_TEAM_MONTHLY_PRICE_ID
+  return undefined
 }
 
 export default async function CheckoutPage({
   searchParams,
 }: {
-  searchParams: Promise<{ plan?: string }>
+  searchParams: Promise<{ plan?: string; billing?: string }>
 }) {
-  const { plan } = await searchParams
+  const { plan, billing } = await searchParams
 
   const supabase = await createSupabaseServerClient()
   const {
@@ -35,8 +50,14 @@ export default async function CheckoutPage({
   } = await supabase.auth.getUser()
 
   if (!user) {
-    const checkoutPath = plan ? `/checkout?plan=${plan}` : '/checkout'
-    redirect(`/login?next=${encodeURIComponent(checkoutPath)}`)
+    // The cycle rides along with the plan. Dropping it here would sign someone
+    // in and then quote them the other price on the way back — the same class
+    // of bug as dropping `next` entirely, which c0eaf6b fixed.
+    const params = new URLSearchParams()
+    if (plan) params.set('plan', plan)
+    if (billing) params.set('billing', billing)
+    const query = params.toString()
+    redirect(`/login?next=${encodeURIComponent(query ? `/checkout?${query}` : '/checkout')}`)
   }
 
   const { data: sub } = await supabase
@@ -57,7 +78,8 @@ export default async function CheckoutPage({
   // price it — and a copy that drifted would show one plan and charge for
   // another.
   const planId: PlanId = paidPlanIdFromParam(plan)
-  const priceId = priceIdForPlan(planId)
+  const cycle = billingCycleFromParam(planId, billing)
+  const priceId = priceIdFor(planId, cycle)
 
   if (!priceId) {
     redirect('/pricing')
@@ -65,5 +87,11 @@ export default async function CheckoutPage({
 
   const planData = getPlan(planId)
 
-  return <CheckoutEmbed planName={planData.name} priceId={priceId} />
+  return (
+    <CheckoutEmbed
+      planName={planData.name}
+      priceId={priceId}
+      cadence={billingCadenceLabel(billingIntervalMonths(planData, cycle) ?? 1)}
+    />
+  )
 }
