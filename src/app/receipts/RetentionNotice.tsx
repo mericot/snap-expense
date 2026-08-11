@@ -21,15 +21,23 @@ import { Card } from '@/components/ui'
  *     one it replaces. Revisit the moment image storage ships.
  *   - Account deletion: still promised, and now actually implemented. The route
  *     behind it used to delete nothing at all (see /api/account/delete).
- *   - The "30 days" backup window is UNCHANGED and still UNVERIFIED. It is
- *     scoped to extracted expense data, which is genuinely stored, so the claim
- *     is at least about a real thing now — but it must be checked against the
- *     project's actual Supabase backup lifecycle before launch. It is repeated
- *     on /legal/retention; both change together.
+ *   - The "30 days in encrypted backups" window is GONE, because it was not
+ *     true either. It was checked against the real project rather than left
+ *     open: the Supabase organisation is on the **free plan**, and Supabase
+ *     only takes customer-accessible daily backups on Pro and above — their
+ *     docs tell free-tier projects to export their own data. Thirty days is the
+ *     *Enterprise* ceiling; Pro is seven and Team is fourteen. So the sentence
+ *     promised a restore window that does not exist at any tier this project
+ *     could be on.
  *
- * ⚠ This copy was marked legally reviewed. It has been changed to stop it being
- * untrue, which is the higher duty, but it should go back past a reviewer
- * before the marketing push.
+ * Rather than swap in a different number, the claim is gone. A retention
+ * promise has to survive someone checking it, and the honest position — deleted
+ * means deleted, with no archive of our own — is both true and stronger. If a
+ * paid plan or PITR is ever enabled, this is where a real window would go.
+ *
+ * ⚠ This copy was marked legally reviewed. It has been changed twice now to
+ * stop it being untrue, which is the higher duty, but it should go back past a
+ * reviewer before the marketing push.
  */
 export default function RetentionNotice() {
   return (
@@ -37,8 +45,8 @@ export default function RetentionNotice() {
       <p className="text-[13px] leading-[1.55] text-text-muted text-pretty">
         <strong className="font-semibold text-text">How long we keep this.</strong>{' '}
         The receipt image is read once and discarded — we never store it. The details we pull out
-        of it stay until you delete them, then sit in encrypted backups for 30 days before they are
-        gone for good. Deleting your account removes everything.{' '}
+        of it stay until you delete them, and deleting removes them straight away. Deleting your
+        account removes everything.{' '}
         <Link href="/legal/retention" className="underline">
           Retention policy
         </Link>

@@ -7,10 +7,18 @@ import Link from "next/link";
  * This page was linked from the retention notice on /receipts long before it
  * existed, so every user who followed that link got a 404. It exists now.
  *
- * ⚠ The 30-day backup window below is REPEATED FROM the retention notice and is
- * still UNVERIFIED against the project's real Supabase backup lifecycle. Confirm
- * it before launch. If it is wrong, three places change together: here,
- * src/app/receipts/RetentionNotice.tsx, and the privacy policy.
+ * The first draft of this page repeated the product's "30 days in encrypted
+ * backups" line. That was checked against the real project and it is false: the
+ * Supabase organisation is on the free plan, which gets no customer-accessible
+ * daily backups at all — Supabase's own docs tell free-tier projects to export
+ * their data themselves. Thirty days is the Enterprise retention ceiling. Pro
+ * is seven days, Team fourteen.
+ *
+ * So no backup window is stated here. Deletion is described as what it actually
+ * is, and the residual-copies paragraph is deliberately unquantified rather
+ * than carrying a number nobody can stand behind. Revisit if a paid plan or
+ * point-in-time recovery is ever enabled — then a real figure exists and this
+ * page and src/app/receipts/RetentionNotice.tsx change together.
  */
 
 export const metadata: Metadata = {
@@ -61,9 +69,9 @@ export default function RetentionPage() {
           <Section title="How long we keep it">
             <p>
               Expense records stay for as long as your account exists. When you
-              delete an expense it is removed from the app immediately, and it
-              persists in encrypted database backups for up to 30 days before it
-              is gone for good.
+              delete an expense, it is removed straight away. We do not keep a
+              separate archive of deleted records, and we have no way to restore
+              one for you once it is gone.
             </p>
           </Section>
 
@@ -72,9 +80,18 @@ export default function RetentionPage() {
               You can delete your account yourself, at any time, from Settings.
               Doing so cancels any active subscription, then permanently removes
               your expense records, your subscription record, and your sign-in
-              account. This is immediate and cannot be undone. The same 30-day
-              backup window described above applies before the data is gone from
-              backups as well.
+              account. This is immediate and cannot be undone.
+            </p>
+          </Section>
+
+          <Section title="Residual copies">
+            <p>
+              Deleted data may persist briefly in the routine operational
+              systems of our database provider &mdash; transaction logs and
+              similar &mdash; before being overwritten in the normal course of
+              running a database. This is not an archive we can search, restore
+              from, or retrieve anything out of, and we do not use it to recover
+              deleted records.
             </p>
           </Section>
 
