@@ -4,13 +4,39 @@ import { createSupabaseAdmin } from '@/lib/supabase-admin'
 import { epochToISO, itemPeriodEnd } from '@/lib/stripe-subscription'
 import type { PlanId } from '@/lib/plans'
 
+/**
+ * Map a Stripe price back to a plan.
+ *
+ * ⚠ EVERY price the product can be sold on must be listed here. The fallback is
+ * `'free'`, so a price this function does not recognise does not fail loudly —
+ * it silently downgrades a paying customer.
+ *
+ * That is not hypothetical. It is the exact failure adding monthly Pro would
+ * have caused: a customer switching yearly → monthly emits
+ * `customer.subscription.updated` carrying the monthly price id, and had this
+ * function not known it, the handler would have written `plan: 'free'` over a
+ * live, paid subscription. The customer keeps being charged and loses the
+ * product.
+ *
+ * If you add a price in Stripe, add it here in the same change.
+ */
 function priceToPlan(priceId: string): PlanId {
-  if (priceId === process.env.STRIPE_PRO_YEARLY_PRICE_ID) {
+  if (
+    priceId === process.env.STRIPE_PRO_YEARLY_PRICE_ID ||
+    priceId === process.env.STRIPE_PRO_MONTHLY_PRICE_ID
+  ) {
     return 'pro'
   }
   if (priceId === process.env.STRIPE_TEAM_MONTHLY_PRICE_ID) {
     return 'team'
   }
+  // Reaching here means Stripe sent a price the app does not know about, which
+  // is a configuration error rather than a downgrade. Log it — the row is about
+  // to be written as free either way, and this is the only trace of why.
+  console.error(
+    `[/api/stripe/webhook] unrecognised price ${priceId} — treating as free. ` +
+      'If this is a real plan price, it is missing from priceToPlan and/or the environment.',
+  )
   return 'free'
 }
 

@@ -24,12 +24,18 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 })
     }
 
+    // The allow-list is what stops a caller naming any price in the account —
+    // including one they invented the id of, or a cheaper archived one. Built
+    // from the environment so an unset variable means that plan simply cannot
+    // be bought, which is how hidden Team stays unbuyable in production.
+    const allowedPriceIds = [
+      process.env.STRIPE_PRO_YEARLY_PRICE_ID,
+      process.env.STRIPE_PRO_MONTHLY_PRICE_ID,
+      process.env.STRIPE_TEAM_MONTHLY_PRICE_ID,
+    ].filter((id): id is string => Boolean(id))
+
     const { priceId } = body
-    if (
-      !priceId ||
-      (priceId !== process.env.STRIPE_PRO_YEARLY_PRICE_ID &&
-        priceId !== process.env.STRIPE_TEAM_MONTHLY_PRICE_ID)
-    ) {
+    if (!priceId || !allowedPriceIds.includes(priceId)) {
       return Response.json({ error: 'Invalid price' }, { status: 400 })
     }
 
@@ -67,7 +73,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const isPro = priceId === process.env.STRIPE_PRO_YEARLY_PRICE_ID
+    // Both Pro cycles get the trial. Checking only the yearly id — as this did
+    // before monthly existed — would have quietly denied the trial to every
+    // monthly subscriber while /pricing went on advertising it on the card.
+    const isPro =
+      priceId === process.env.STRIPE_PRO_YEARLY_PRICE_ID ||
+      priceId === process.env.STRIPE_PRO_MONTHLY_PRICE_ID
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',

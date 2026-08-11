@@ -10,6 +10,7 @@ import { checkoutIntent, type CheckoutIntent } from '@/lib/checkout-intent'
 import {
   TRIAL_DAYS,
   chargePerCycleCents,
+  priceCaption,
   chargePeriodLabel,
   billingIntervalMonths,
   formatMoney,
@@ -369,16 +370,19 @@ function LoginPageInner() {
  * one.
  */
 function PlanSummary({ intent }: { intent: CheckoutIntent }) {
-  const { plan } = intent
-  const months = billingIntervalMonths(plan)
+  // The cycle matters here, not just the plan. Someone who picked monthly on
+  // /pricing and got bounced through sign-in must see the monthly price on the
+  // way back, or the number changes under them between the two screens.
+  const { plan, cycle } = intent
+  const months = billingIntervalMonths(plan, cycle)
 
   return (
     <div className="mt-5 w-full max-w-[400px] rounded-card border border-border bg-surface p-4">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-[14px] font-semibold text-text">{plan.name}</span>
         <span className="text-[14px] text-text tabular-nums">
-          {formatMoneyHeadline(headlineAmountCents(plan))}{' '}
-          <span className="text-[12.5px] text-text-tertiary">{plan.priceCaption}</span>
+          {formatMoneyHeadline(headlineAmountCents(plan, cycle))}{' '}
+          <span className="text-[12.5px] text-text-tertiary">{priceCaption(plan, cycle)}</span>
         </span>
       </div>
 
@@ -388,7 +392,7 @@ function PlanSummary({ intent }: { intent: CheckoutIntent }) {
         <strong className="font-semibold text-text-title tabular-nums">
           {TRIAL_DAYS} days free
         </strong>
-        , then {formatMoney(chargePerCycleCents(plan))}
+        , then {formatMoney(chargePerCycleCents(plan, cycle))}
         {months === null ? '' : ` ${chargePeriodLabel(months)}`}. Cancel any time before then and
         you are not charged.
       </p>

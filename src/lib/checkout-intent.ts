@@ -1,4 +1,4 @@
-import { getPlan, type Plan, type PlanId } from '@/lib/plans'
+import { availableCycles, getPlan, type BillingCycle, type Plan, type PlanId } from '@/lib/plans'
 import { safeNext } from '@/lib/safe-next'
 
 /**
@@ -18,6 +18,28 @@ import { safeNext } from '@/lib/safe-next'
 export type CheckoutIntent = {
   planId: PlanId
   plan: Plan
+  /** Which price they picked on `/pricing`. */
+  cycle: BillingCycle
+}
+
+/**
+ * The billing cycle a `?billing=` value names, for a given plan.
+ *
+ * Validated against the plan rather than parsed on its own, because the two can
+ * disagree: `?plan=team&billing=yearly` names a cycle Team is not sold on. An
+ * unrecognised or unavailable value falls back to the plan's default, which is
+ * the same rule `paidPlanIdFromParam` applies to the plan itself — a URL a
+ * stranger can hand a victim should never produce a state the product cannot
+ * price.
+ */
+export function billingCycleFromParam(
+  planId: PlanId,
+  billing: string | null | undefined,
+): BillingCycle {
+  const plan = getPlan(planId)
+  const fallback = plan.pricing.model === 'paid' ? plan.pricing.defaultCycle : 'yearly'
+  if (billing !== 'monthly' && billing !== 'yearly') return fallback
+  return availableCycles(plan).includes(billing) ? billing : fallback
 }
 
 /**
@@ -54,5 +76,6 @@ export function checkoutIntent(next: string | null | undefined): CheckoutIntent 
   if (url.pathname !== '/checkout') return null
 
   const planId = paidPlanIdFromParam(url.searchParams.get('plan'))
-  return { planId, plan: getPlan(planId) }
+  const cycle = billingCycleFromParam(planId, url.searchParams.get('billing'))
+  return { planId, plan: getPlan(planId), cycle }
 }

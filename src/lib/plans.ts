@@ -31,6 +31,40 @@ export type Cents = number
 export type PlanId = 'free' | 'pro' | 'team'
 
 /**
+ * Monthly or yearly. The axis a buyer chooses on `/pricing`.
+ *
+ * Deliberately not `'month' | 'year'` — those are Stripe's interval values, and
+ * keeping our vocabulary distinct stops the two being conflated when a price id
+ * is looked up.
+ */
+export type BillingCycle = 'monthly' | 'yearly'
+
+/**
+ * One way of paying for one plan.
+ *
+ * A plan used to carry exactly one of these inline. It now carries a set,
+ * because Pro is sold both monthly and yearly and the yearly price is not
+ * simply the monthly one times twelve — that discount is the whole reason
+ * anyone picks yearly.
+ */
+export type PaidPrice = {
+  readonly cycle: BillingCycle
+  /**
+   * What one unit costs for one month **at this cycle**. The quoted headline
+   * number. Yearly quotes the discounted monthly equivalent, not the annual
+   * total: $7 for yearly Pro, $9 for monthly Pro.
+   */
+  readonly unitPerMonthCents: Cents
+  /** Months covered by a single charge. 12 = billed yearly, 1 = billed monthly. */
+  readonly billedEveryMonths: number
+  /**
+   * The words after the headline amount. Contains no numeral by design — see
+   * rule 2 in the module comment.
+   */
+  readonly caption: string
+}
+
+/**
  * How a plan is charged.
  *
  * Modelled as a union rather than "amount + interval" fields so that a real
@@ -39,15 +73,15 @@ export type PlanId = 'free' | 'pro' | 'team'
  * error at exactly the places that have to change.
  */
 export type PlanPricing =
-  | { readonly model: 'free' }
+  | { readonly model: 'free'; readonly caption: string }
   | {
       readonly model: 'paid'
-      /** What one unit costs for one month. This is the quoted headline number. */
-      readonly unitPerMonthCents: Cents
-      /** Months covered by a single charge. 12 = billed yearly, 1 = billed monthly. */
-      readonly billedEveryMonths: number
       /** `account` = one flat subscription; `seat` = multiplied by seat count. */
       readonly unit: 'account' | 'seat'
+      /** At least one. Ordered cheapest-per-month first. */
+      readonly prices: readonly PaidPrice[]
+      /** Preselected on `/pricing`, and used when a caller names no cycle. */
+      readonly defaultCycle: BillingCycle
     }
 
 export type PlanCta = {
@@ -68,11 +102,6 @@ export type Plan = {
   /** One line under the plan name. Verbatim from the handoff. */
   readonly tagline: string
   readonly pricing: PlanPricing
-  /**
-   * The words after the headline amount. Contains no numeral by design — see
-   * rule 2 in the module comment.
-   */
-  readonly priceCaption: string
   readonly features: readonly string[]
   readonly cta: PlanCta
   /** Pill overlapping the card's top edge. At most one plan should carry it. */
@@ -101,8 +130,7 @@ const FREE: Plan = {
   id: 'free',
   name: 'Free',
   tagline: 'For the occasional receipt',
-  pricing: { model: 'free' },
-  priceCaption: 'forever',
+  pricing: { model: 'free', caption: 'forever' },
   features: ['10 receipts a month', 'Automatic merchant and total', 'Monthly summary'],
   cta: { label: 'Current plan', href: null, emphasis: 'outline' },
 }
@@ -111,10 +139,21 @@ const PRO: Plan = {
   id: 'pro',
   name: 'Pro',
   tagline: 'For freelancers and one-person businesses',
-  // $7/month billed yearly. The $84 charged annually is derived, never restated:
-  // chargePerCycleCents(pro) === 700 * 12 === 8400.
-  pricing: { model: 'paid', unitPerMonthCents: 700, billedEveryMonths: 12, unit: 'account' },
-  priceCaption: 'per month, billed yearly',
+  pricing: {
+    model: 'paid',
+    unit: 'account',
+    defaultCycle: 'yearly',
+    prices: [
+      // $7/month billed yearly. The $84 charged annually is derived, never
+      // restated: chargePerCycleCents(pro, 'yearly') === 700 * 12 === 8400.
+      { cycle: 'yearly', unitPerMonthCents: 700, billedEveryMonths: 12, caption: 'per month, billed yearly' },
+      // $9/month billed monthly. The gap between this and the yearly headline
+      // is the discount — 900 * 12 = 10800 against 8400, so yearly saves 22%.
+      // If these two are ever set to the same number, yearly stops having a
+      // reason to exist; see annualSavingPercent below.
+      { cycle: 'monthly', unitPerMonthCents: 900, billedEveryMonths: 1, caption: 'per month, billed monthly' },
+    ],
+  },
   features: [
     'Unlimited receipts',
     'CSV and Excel export',
@@ -135,20 +174,30 @@ const PRO: Plan = {
  * return page, `Subscription.plan`) — it is simply absent from `PLANS`, so
  * `/pricing` never renders it and nothing links to `/checkout?plan=team`.
  *
- * That URL does still resolve for anyone who types it, which is the accepted
- * cost of keeping re-launch to a one-line change. It is not an entitlement
- * hole: reaching checkout is not the same as being charged, and Stripe will
- * only take money against `STRIPE_TEAM_MONTHLY_PRICE_ID` if that price is
- * live. Retiring the price in Stripe closes the path without a deploy.
+ * Two independent gates keep it unbuyable, which is why hiding it is not merely
+ * cosmetic. It is not listed in `PLANS`, and `/checkout` resolves its price id
+ * from `STRIPE_TEAM_MONTHLY_PRICE_ID` — unset in production — then redirects to
+ * `/pricing` when that is missing. So a hand-typed `/checkout?plan=team` does
+ * not reach a payment form at all. Retiring the price in Stripe would close the
+ * path a second time, without a deploy.
  *
- * To relaunch: add TEAM back to `PLANS`.
+ * To relaunch: add TEAM back to `PLANS`, set the price id, and give it a
+ * `prices` entry per cycle you intend to sell it on. No type changes and no
+ * migration — the database `check (plan in ('free','pro','team'))` already
+ * allows it.
  */
 const TEAM: Plan = {
   id: 'team',
   name: 'Team',
   tagline: 'When someone else has to approve it',
-  pricing: { model: 'paid', unitPerMonthCents: 1100, billedEveryMonths: 1, unit: 'seat' },
-  priceCaption: 'per person, per month',
+  pricing: {
+    model: 'paid',
+    unit: 'seat',
+    defaultCycle: 'monthly',
+    prices: [
+      { cycle: 'monthly', unitPerMonthCents: 1100, billedEveryMonths: 1, caption: 'per person, per month' },
+    ],
+  },
   features: [
     'Everything in Pro',
     'Shared workspace and approvals',
@@ -175,25 +224,87 @@ export function getPlan(id: PlanId): Plan {
 /* Derived amounts                                                            */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * The price for one cycle, or `null` if the plan is not sold that way.
+ *
+ * Every function below funnels through this, so "Team has no yearly price" is
+ * answered in one place rather than assumed in six.
+ *
+ * Omitting `cycle` means "whichever this plan leads with" — the reason callers
+ * that predate monthly billing (the login page's purchase summary, for
+ * instance) keep working without having to thread a cycle they do not know.
+ */
+export function priceFor(plan: Plan, cycle?: BillingCycle): PaidPrice | null {
+  const p = plan.pricing
+  if (p.model !== 'paid') return null
+  const wanted = cycle ?? p.defaultCycle
+  return p.prices.find((price) => price.cycle === wanted) ?? null
+}
+
+/** Which cycles a plan can actually be bought on. Empty for free plans. */
+export function availableCycles(plan: Plan): readonly BillingCycle[] {
+  return plan.pricing.model === 'paid' ? plan.pricing.prices.map((p) => p.cycle) : []
+}
+
+/** The words under the headline. Never contains a numeral — see rule 2. */
+export function priceCaption(plan: Plan, cycle?: BillingCycle): string {
+  if (plan.pricing.model === 'free') return plan.pricing.caption
+  return priceFor(plan, cycle)?.caption ?? ''
+}
+
 /** The large number on the plan card: what one unit costs for one month. */
-export function headlineAmountCents(plan: Plan): Cents {
-  return plan.pricing.model === 'paid' ? plan.pricing.unitPerMonthCents : 0
+export function headlineAmountCents(plan: Plan, cycle?: BillingCycle): Cents {
+  return priceFor(plan, cycle)?.unitPerMonthCents ?? 0
 }
 
 /**
  * What a single charge comes to, before tax.
  *
- * Pro: 700 × 12 × 1 = 8400 → "$84.00", the figure `/checkout`'s payment terms
- * must disclose. Team: 1100 × 1 × seats.
+ * Pro yearly: 700 × 12 × 1 = 8400 → "$84.00", the figure `/checkout`'s payment
+ * terms must disclose. Pro monthly: 900 × 1 × 1 = 900. Team: 1100 × 1 × seats.
  */
-export function chargePerCycleCents(plan: Plan, units = 1): Cents {
-  const p = plan.pricing
-  return p.model === 'paid' ? p.unitPerMonthCents * p.billedEveryMonths * units : 0
+export function chargePerCycleCents(plan: Plan, cycle?: BillingCycle, units = 1): Cents {
+  const price = priceFor(plan, cycle)
+  return price ? price.unitPerMonthCents * price.billedEveryMonths * units : 0
 }
 
 /** Months between charges. `null` for plans that are never charged. */
-export function billingIntervalMonths(plan: Plan): number | null {
-  return plan.pricing.model === 'paid' ? plan.pricing.billedEveryMonths : null
+export function billingIntervalMonths(plan: Plan, cycle?: BillingCycle): number | null {
+  return priceFor(plan, cycle)?.billedEveryMonths ?? null
+}
+
+/**
+ * How much yearly saves against paying monthly, as a whole percent. `null` when
+ * the plan is not sold both ways.
+ *
+ * This is what the toggle on `/pricing` advertises, and it is derived rather
+ * than typed in — so it cannot drift from the prices, and if someone ever sets
+ * the two cycles to the same effective amount it returns 0 and the badge
+ * disappears instead of advertising a saving that is not there.
+ */
+export function annualSavingPercent(plan: Plan): number | null {
+  const yearly = priceFor(plan, 'yearly')
+  const monthly = priceFor(plan, 'monthly')
+  if (!yearly || !monthly) return null
+
+  const yearlyTotal = yearly.unitPerMonthCents * yearly.billedEveryMonths
+  const monthlyTotal = monthly.unitPerMonthCents * 12
+  if (monthlyTotal <= 0 || yearlyTotal >= monthlyTotal) return 0
+
+  return Math.round(((monthlyTotal - yearlyTotal) / monthlyTotal) * 100)
+}
+
+/**
+ * Where a plan's CTA points, carrying the chosen cycle.
+ *
+ * `/checkout` and the login page both read this back through
+ * lib/checkout-intent.ts, so the parameter name is defined once here rather
+ * than spelled out at each call site.
+ */
+export function checkoutHref(planId: PlanId, cycle?: BillingCycle): string {
+  const plan = getPlan(planId)
+  const resolved = cycle ?? (plan.pricing.model === 'paid' ? plan.pricing.defaultCycle : null)
+  return resolved ? `/checkout?plan=${planId}&billing=${resolved}` : `/checkout?plan=${planId}`
 }
 
 /** Adjective form: "snapExpense Pro, **yearly**". */

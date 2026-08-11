@@ -17,9 +17,12 @@ const stripePromise = loadStripe(
 export default function CheckoutEmbed({
   planName,
   priceId,
+  cadence,
 }: {
   planName: string
   priceId: string
+  /** "monthly" or "yearly" — named so the buyer can see which price they are on. */
+  cadence: string
 }) {
   const fetchClientSecret = useCallback(async () => {
     const res = await fetch('/api/stripe/checkout', {
@@ -44,7 +47,7 @@ export default function CheckoutEmbed({
 
         <div className="mb-8">
           <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-text">
-            Subscribe to snapExpense {planName}
+            Subscribe to snapExpense {planName}, {cadence}
           </h1>
           <p className="mt-[6px] text-[13px] leading-[1.5] text-text-tertiary">
             Complete your purchase below. Your card details are handled entirely
