@@ -18,7 +18,8 @@
  *      reaches a screen is formatted from `pricing`.
  *
  * Currency is USD / US market (decided). Sales tax is deliberately NOT modelled
- * as a plan property — see `ILLUSTRATIVE_TAX_RATE` at the bottom.
+ * as a plan property — Stripe Tax computes it at checkout; see the note at the
+ * bottom of this file.
  */
 
 export const CURRENCY = 'USD'
@@ -260,26 +261,24 @@ export const PRE_CHECKOUT_STATEMENTS: readonly string[] = [
 ]
 
 /* -------------------------------------------------------------------------- */
-/* Sales tax — read this before using it                                      */
+/* Sales tax                                                                  */
 /* -------------------------------------------------------------------------- */
 
-/**
- * NOT A RATE YOU MAY BILL ON. This is the New York City combined rate, exported
- * only so `/checkout` has something concrete to render before a tax engine
- * exists.
+/*
+ * Sales tax is no longer modelled here, and deliberately so.
  *
- * US sales tax is destination-based and SaaS is untaxed in many states, so
- * there is no single national rate and no correct constant to put here. In
- * production the number comes from a tax engine keyed on the customer's ZIP,
- * and `/checkout` must handle all three outcomes: not yet computed (no ZIP),
- * computed as zero (untaxed state), and computed as non-zero.
+ * This module used to export `ILLUSTRATIVE_TAX_RATE` — New York City's combined
+ * rate — plus a helper that applied it, so the old hand-built checkout had a
+ * concrete number to render. Both are gone, along with the component that used
+ * them (`CheckoutForm.tsx`, which was dead code by the time it was removed: the
+ * live page renders Stripe's embedded checkout, so that rate had not reached a
+ * customer in some time).
+ *
+ * Tax is now computed by Stripe Tax, enabled on the session in
+ * /api/stripe/checkout, from the billing address the buyer enters. That is the
+ * only way to get it right: US sales tax is destination-based, SaaS is untaxed
+ * in many states, and there is therefore no correct constant to keep in a file.
+ *
+ * Do not reintroduce a rate here. A hardcoded percentage is wrong for almost
+ * every customer, and being visibly plausible is what makes it dangerous.
  */
-export const ILLUSTRATIVE_TAX_RATE = 0.08875
-
-/**
- * Illustrative tax on an amount, rounded to the cent. On Pro's $84.00 this
- * gives $7.46 and a $91.46 total, matching the handoff's worked example.
- */
-export function illustrativeTaxCents(cents: Cents): Cents {
-  return Math.round(cents * ILLUSTRATIVE_TAX_RATE)
-}

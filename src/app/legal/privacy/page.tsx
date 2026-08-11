@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy | snapExpense",
+  title: "Privacy Policy",
   description: "How snapExpense collects, uses, and protects your data.",
 };
 
@@ -51,13 +51,12 @@ export default function PrivacyPage() {
                 in memory to extract expense data. We do not store your receipt
                 images after extraction is complete.
               </li>
-              <li>
-                <strong>Usage analytics.</strong> We use Vercel Analytics to
-                collect anonymous, aggregated usage data such as page views and
-                performance metrics. No personally identifiable information is
-                collected through analytics.
-              </li>
             </ul>
+            <p className="mt-2">
+              We do not run any analytics or tracking on snapExpense. No
+              third-party analytics service is loaded, and the only cookies set
+              are the ones that keep you signed in.
+            </p>
           </Section>
 
           <Section title="How we use your data">
@@ -103,8 +102,12 @@ export default function PrivacyPage() {
                 text extraction.
               </li>
               <li>
-                <strong>Vercel</strong> &mdash; application hosting and
-                analytics.
+                <strong>Vercel</strong> &mdash; application hosting.
+              </li>
+              <li>
+                <strong>Stripe</strong> &mdash; subscription payments. Card
+                details are entered directly with Stripe and never reach our
+                servers.
               </li>
             </ul>
             <p className="mt-2">
@@ -118,8 +121,24 @@ export default function PrivacyPage() {
             <p>
               Your expense data is retained for as long as you maintain an
               account. You can delete individual expenses at any time from the
-              app. To request full account deletion and removal of all
-              associated data, contact us at the email below.
+              app.
+            </p>
+            <p className="mt-2">
+              You can also delete your entire account yourself, at any time,
+              from Settings. This cancels any active subscription and
+              permanently removes your expense records, your subscription
+              record, and your sign-in account. If you would rather we did it
+              for you, email us at the address below.
+            </p>
+            <p className="mt-2">
+              Full detail of what is kept and for how long is in our{" "}
+              <a
+                href="/legal/retention"
+                className="underline hover:text-zinc-900"
+              >
+                retention policy
+              </a>
+              .
             </p>
           </Section>
 

@@ -8,7 +8,7 @@ import { createSupabaseServerClient } from '@/lib/supabase-server'
 import type { PlanId } from '@/lib/plans'
 
 export const metadata: Metadata = {
-  title: 'Welcome to Pro — snapExpense',
+  title: 'Welcome to Pro',
   robots: { index: false, follow: false },
 }
 

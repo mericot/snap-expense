@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Data Processing Agreement | snapExpense",
+  title: "Data Processing Agreement",
   description:
     "Data Processing Agreement for snapExpense customers on a paid plan.",
 };
@@ -196,16 +196,43 @@ export default function DpaPage() {
           <Section title="8. Data retention and deletion">
             <p>
               We retain Personal Data for as long as the Controller maintains
-              an active account. Upon termination of the Service or upon the
-              Controller&rsquo;s written request, we will delete all Personal
-              Data within 30 days, except where retention is required by law.
-              The Controller may export all data at any time before deletion.
+              an active account. The Controller may delete their account at any
+              time from Settings, which removes all Personal Data immediately.
+              Upon termination of the Service or upon the Controller&rsquo;s
+              written request, we will delete all Personal Data within 30 days,
+              except where retention is required by law. The Controller may
+              export their expense data to CSV at any time before deletion.
+            </p>
+            <p className="mt-2">
+              We do not maintain a separate archive of deleted data and cannot
+              restore it once removed. See our{" "}
+              <a
+                href="/legal/retention"
+                className="underline hover:text-zinc-900"
+              >
+                retention policy
+              </a>{" "}
+              for detail.
             </p>
           </Section>
 
           <Section title="9. Security measures">
             <p>snapExpense maintains the following security measures:</p>
             <ul className="mt-2 list-disc space-y-2 pl-5">
+              {/* "In transit" is directly verifiable — Supabase and Vercel both
+                  terminate TLS, and the app now sends HSTS.
+
+                  ⚠ "At rest" is NOT verified. It is very likely true — managed
+                  Postgres on this infrastructure is normally encrypted at rest
+                  — but it is an inherited claim about a subprocessor's
+                  internals, stated in a contract, and it was not confirmed
+                  against Supabase's documentation or their security page. The
+                  neighbouring backup claim in this same family turned out to be
+                  false, which is reason enough not to assume this one.
+
+                  Confirm it against Supabase's security documentation for the
+                  free plan before signing this DPA with anyone, and drop the
+                  line if it cannot be substantiated. */}
               <li>Encryption of data in transit (TLS/HTTPS).</li>
               <li>Encryption of data at rest.</li>
               <li>

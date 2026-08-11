@@ -2,6 +2,7 @@ import Anthropic, { APIConnectionTimeoutError, RateLimitError, APIError } from '
 import { NextRequest, NextResponse } from 'next/server'
 import { CATEGORIES } from '@/lib/categories'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { createSupabaseAdmin } from '@/lib/supabase-admin'
 import sharp from 'sharp'
 import heicConvert from 'heic-convert'
 
@@ -19,8 +20,23 @@ const MAX_BODY_BYTES = 10 * 1024 * 1024 // 10 MB
 const FREE_MONTHLY_LIMIT = 10
 
 export async function POST(req: NextRequest) {
+  // Set once the monthly quota has been consumed, so the catch block knows
+  // whether there is anything to give back. See the refund note there.
+  let quotaConsumedBy: string | null = null
+
   try {
-    const contentLength = parseInt(req.headers.get('content-length') ?? '', 10)
+    // Fail closed on a missing or unparseable Content-Length.
+    //
+    // This used to be `parseInt(header ?? '')` compared with `>`, which does
+    // nothing at all when the header is absent: parseInt('') is NaN, and
+    // `NaN > anything` is false, so a chunked request walked straight through
+    // the one check that was supposed to bound it. The body was then read in
+    // full — into memory — before its size was looked at.
+    const rawContentLength = req.headers.get('content-length')
+    const contentLength = Number(rawContentLength)
+    if (!rawContentLength || !Number.isFinite(contentLength)) {
+      return NextResponse.json({ error: 'Content-Length required.' }, { status: 411 })
+    }
     if (contentLength > MAX_BODY_BYTES) {
       return NextResponse.json({ error: 'Payload too large. Maximum 10 MB.' }, { status: 413 })
     }
@@ -39,23 +55,25 @@ export async function POST(req: NextRequest) {
 
     const isPaid = sub && sub.plan !== 'free' && (sub.status === 'active' || sub.status === 'trialing')
 
-    if (!isPaid) {
-      const now = new Date()
-      const monthStart = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01T00:00:00`
-      const { count } = await supabase
-        .from('expenses')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('created_at', monthStart)
-      if ((count ?? 0) >= FREE_MONTHLY_LIMIT) {
-        return NextResponse.json(
-          { error: `You have used all ${FREE_MONTHLY_LIMIT} free receipts this month. Upgrade to Pro for unlimited scans.` },
-          { status: 403 }
-        )
-      }
-    }
+    // Metering runs on the service role, not the caller's session.
+    //
+    // PostgREST publishes every public function as /rest/v1/rpc/<name>, and
+    // Supabase grants EXECUTE to `authenticated` by default. These functions are
+    // `security definer` and take the user id as an argument, so called with the
+    // caller's own session they are just an HTTP endpoint anyone can hit with
+    // any id — which makes the quota unenforceable. `refund_extraction_quota` is
+    // the sharp end: a loop against it zeroes your own counter and buys
+    // unlimited extractions.
+    //
+    // EXECUTE has been revoked from anon and authenticated (see
+    // db/migrations/2026-08-10-restrict-rpc-execute.sql). The service role is
+    // exempt from that, and it is the only context where `p_user_id` is a value
+    // this server decided rather than one a caller supplied.
+    const admin = createSupabaseAdmin()
 
-    const { data: allowed, error: rlError } = await supabase.rpc('check_rate_limit', {
+    // Burst brake, applied to everyone including paid accounts. Kept ahead of
+    // reading the body so a flood costs as little as possible.
+    const { data: allowed, error: rlError } = await admin.rpc('check_rate_limit', {
       p_user_id: user.id,
       p_max_requests: RATE_LIMIT_PER_HOUR,
     })
@@ -83,6 +101,44 @@ export async function POST(req: NextRequest) {
 
     if (!ALLOWED_MEDIA_TYPES.includes(mediaType)) {
       return NextResponse.json({ error: 'Unsupported media type' }, { status: 400 })
+    }
+
+    // Free-tier metering.
+    //
+    // This used to count rows in `expenses` for the current month, which meant
+    // it was measuring the wrong thing entirely: Anthropic is paid for here,
+    // and saving the result is the client's decision. Extract-and-never-save
+    // was free and uncounted, so the only real ceiling on a free account was
+    // the hourly rate limit — several hundred vision calls a day, on a signup
+    // that costs nothing to create. (It was also wrong in the mundane
+    // direction: soft-deleted receipts still counted against the allowance.)
+    //
+    // Now the metered event is the extraction itself. Deliberately placed here
+    // — after the request has been proven well-formed, before any real work is
+    // done — so a malformed request cannot burn someone's allowance and a
+    // rejected one costs no CPU.
+    if (!isPaid) {
+      const { data: withinQuota, error: quotaError } = await admin.rpc('check_extraction_quota', {
+        p_user_id: user.id,
+        p_max_extractions: FREE_MONTHLY_LIMIT,
+      })
+
+      if (quotaError) {
+        console.error('[/api/extract] quota check failed', quotaError)
+        return NextResponse.json({ error: 'Could not verify your plan usage. Please try again.' }, { status: 503 })
+      }
+
+      // Consumed whether or not it was within the limit — the increment is the
+      // check. Recorded so the catch block can hand it back if what follows
+      // fails for a reason that is ours.
+      quotaConsumedBy = user.id
+
+      if (!withinQuota) {
+        return NextResponse.json(
+          { error: `You have used all ${FREE_MONTHLY_LIMIT} free scans this month. Upgrade to Pro for unlimited scans.` },
+          { status: 403 }
+        )
+      }
     }
 
     let finalBase64 = imageBase64
@@ -151,6 +207,25 @@ Rules:
     return NextResponse.json(extracted)
   } catch (err) {
     console.error('[/api/extract]', err)
+
+    // Everything reaching this handler is an infrastructure failure — a
+    // timeout, Anthropic being unavailable, a decode that blew up. None of it
+    // is the user's doing, and on a ten-a-month allowance, silently keeping the
+    // unit would make every transient blip cost someone a tenth of their plan.
+    //
+    // Note what does *not* refund: a legitimate over-quota response returns
+    // 403 directly rather than throwing, so it never lands here. Best effort by
+    // design — if the refund itself fails there is nothing useful left to do,
+    // and failing the request twice helps nobody.
+    if (quotaConsumedBy) {
+      // A fresh admin client: the one above is scoped inside the try block, and
+      // this path is reachable from a throw that happened before it existed.
+      const { error: refundError } = await createSupabaseAdmin().rpc('refund_extraction_quota', {
+        p_user_id: quotaConsumedBy,
+      })
+      if (refundError) console.error('[/api/extract] quota refund failed', refundError)
+    }
+
     if (err instanceof APIConnectionTimeoutError) {
       return NextResponse.json({ error: 'Request timed out. Please try again.' }, { status: 504 })
     }

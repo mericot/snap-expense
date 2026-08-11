@@ -1,0 +1,27 @@
+import type { MetadataRoute } from 'next'
+import { siteUrl } from '@/lib/site-url'
+
+/**
+ * robots.txt.
+ *
+ * Everything behind a sign-in is disallowed. Not as a security control — the
+ * proxy and RLS do that, and a crawler cannot reach any of it without a session
+ * anyway — but because these paths are worthless in an index and a couple of
+ * them are actively bad to have there: `/checkout/return` carries a Stripe
+ * session id in its query string, and `/auth/callback` carries a single-use
+ * code.
+ *
+ * `/checkout` already sets `robots: { index: false }` in its own metadata. Both
+ * are kept: page-level metadata governs a page that gets crawled, this governs
+ * whether it is fetched at all, and they are cheap to state twice.
+ */
+export default function robots(): MetadataRoute.Robots {
+  return {
+    rules: {
+      userAgent: '*',
+      allow: '/',
+      disallow: ['/receipts', '/settings', '/checkout', '/auth/', '/api/'],
+    },
+    sitemap: `${siteUrl()}/sitemap.xml`,
+  }
+}

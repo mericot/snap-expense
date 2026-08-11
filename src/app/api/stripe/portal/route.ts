@@ -1,8 +1,8 @@
-import { NextRequest } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { stripe } from '@/lib/stripe'
+import { siteUrl } from '@/lib/site-url'
 
-export async function POST(req: NextRequest) {
+export async function POST() {
   const supabase = await createSupabaseServerClient()
   const {
     data: { user },
@@ -22,11 +22,9 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'No billing account found' }, { status: 400 })
   }
 
-  const origin = req.headers.get('origin') || req.nextUrl.origin
-
   const portalSession = await stripe.billingPortal.sessions.create({
     customer: sub.stripe_customer_id,
-    return_url: `${origin}/settings`,
+    return_url: `${siteUrl()}/settings`,
   })
 
   return Response.json({ url: portalSession.url })
