@@ -14,11 +14,17 @@ import Link from "next/link";
  * their data themselves. Thirty days is the Enterprise retention ceiling. Pro
  * is seven days, Team fourteen.
  *
- * So no backup window is stated here. Deletion is described as what it actually
- * is, and the residual-copies paragraph is deliberately unquantified rather
- * than carrying a number nobody can stand behind. Revisit if a paid plan or
- * point-in-time recovery is ever enabled — then a real figure exists and this
- * page and src/app/receipts/RetentionNotice.tsx change together.
+ * So no *backup* window is stated here, and the residual-copies paragraph is
+ * deliberately unquantified rather than carrying a number nobody can stand
+ * behind. Revisit if a paid plan or point-in-time recovery is ever enabled.
+ *
+ * The 30 days that IS stated is a different number and a real one: deleting an
+ * expense in the app only stamps `deleted_at`, and the row used to survive
+ * forever, which made an earlier draft of this page ("removed straight away")
+ * false in its own right. A nightly pg_cron job now purges those rows after 30
+ * days — see migrations/2026-08-11-purge-deleted-expenses.sql. Change the
+ * window in that function's default, and change this page and
+ * src/app/receipts/RetentionNotice.tsx to match.
  */
 
 export const metadata: Metadata = {
@@ -69,9 +75,10 @@ export default function RetentionPage() {
           <Section title="How long we keep it">
             <p>
               Expense records stay for as long as your account exists. When you
-              delete an expense, it is removed straight away. We do not keep a
-              separate archive of deleted records, and we have no way to restore
-              one for you once it is gone.
+              delete an expense it disappears from your account immediately, and
+              the record itself is permanently deleted from our database within
+              30 days. We keep no separate archive beyond that window, and once
+              a record is deleted we cannot restore it.
             </p>
           </Section>
 

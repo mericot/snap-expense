@@ -30,10 +30,18 @@ import { Card } from '@/components/ui'
  *     promised a restore window that does not exist at any tier this project
  *     could be on.
  *
- * Rather than swap in a different number, the claim is gone. A retention
- * promise has to survive someone checking it, and the honest position — deleted
- * means deleted, with no archive of our own — is both true and stronger. If a
- * paid plan or PITR is ever enabled, this is where a real window would go.
+ * Rather than swap in a different number, that claim is gone. A retention
+ * promise has to survive someone checking it. If a paid plan or PITR is ever
+ * enabled, this is where a real *backup* window would go.
+ *
+ * The 30 days now stated is a different figure and a real one. Deleting an
+ * expense only stamps `deleted_at`; the row itself used to survive forever, so
+ * the draft that replaced the backup sentence ("deleting removes them straight
+ * away") was false in turn — the second wrong claim in the same paragraph in
+ * two days. A nightly pg_cron job now purges soft-deleted rows after 30 days,
+ * which is what makes this sentence true. See
+ * db/migrations/2026-08-11-purge-deleted-expenses.sql; the window lives in that
+ * function's default and this copy tracks it.
  *
  * ⚠ This copy was marked legally reviewed. It has been changed twice now to
  * stop it being untrue, which is the higher duty, but it should go back past a
@@ -45,8 +53,8 @@ export default function RetentionNotice() {
       <p className="text-[13px] leading-[1.55] text-text-muted text-pretty">
         <strong className="font-semibold text-text">How long we keep this.</strong>{' '}
         The receipt image is read once and discarded — we never store it. The details we pull out
-        of it stay until you delete them, and deleting removes them straight away. Deleting your
-        account removes everything.{' '}
+        of it stay until you delete them, then leave our database within 30 days. Deleting your
+        account removes everything at once.{' '}
         <Link href="/legal/retention" className="underline">
           Retention policy
         </Link>
