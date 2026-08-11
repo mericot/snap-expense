@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Button } from '@/components/ui'
 import { PRE_CHECKOUT_STATEMENTS } from '@/lib/plans'
+import { purchasableCycles } from '@/lib/stripe-prices'
 import PlanGrid from './PlanGrid'
 
 export const metadata: Metadata = {
@@ -48,7 +49,9 @@ export default function PricingPage() {
         downloadable either way.
       </p>
 
-      <PlanGrid />
+      {/* Resolved on the server: the toggle must not offer a cycle this
+          deployment has no Stripe price id for. */}
+      <PlanGrid offeredCycles={purchasableCycles('pro')} />
 
       <ul className="mt-7 mb-10 flex list-none flex-wrap justify-center gap-x-6 gap-y-2 text-center text-[12px] text-text-tertiary">
         {PRE_CHECKOUT_STATEMENTS.map((statement) => (

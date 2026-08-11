@@ -117,15 +117,19 @@ function CycleToggle({
   cycle,
   onChange,
   saving,
+  offered,
 }: {
   cycle: BillingCycle
   onChange: (next: BillingCycle) => void
   saving: number | null
+  offered: readonly BillingCycle[]
 }) {
-  const options: { value: BillingCycle; label: string }[] = [
-    { value: 'monthly', label: 'Monthly' },
-    { value: 'yearly', label: 'Yearly' },
-  ]
+  const options = (
+    [
+      { value: 'monthly', label: 'Monthly' },
+      { value: 'yearly', label: 'Yearly' },
+    ] as const
+  ).filter((option) => offered.includes(option.value))
 
   return (
     <div className="mt-7 flex items-center gap-3">
@@ -165,13 +169,34 @@ function CycleToggle({
   )
 }
 
-export default function PlanGrid() {
-  const [cycle, setCycle] = useState<BillingCycle>('yearly')
+/**
+ * `offeredCycles` comes from the server, not from `lib/plans.ts`.
+ *
+ * plans.ts knows how Pro is *sold*; only the server knows which Stripe price
+ * ids this deployment actually has. Offering a cycle with no price id produced
+ * a button that bounced off `/checkout` straight back to `/pricing` — which
+ * reads, to whoever clicked it, as the page refreshing for no reason. See
+ * `purchasableCycles` in lib/stripe-prices.ts.
+ */
+export default function PlanGrid({ offeredCycles }: { offeredCycles: readonly BillingCycle[] }) {
+  // Prefer yearly when it is on offer, since it is the plan's default and the
+  // better deal; otherwise lead with whatever can be bought.
+  const initial: BillingCycle = offeredCycles.includes('yearly')
+    ? 'yearly'
+    : (offeredCycles[0] ?? 'yearly')
+  const [cycle, setCycle] = useState<BillingCycle>(initial)
   const saving = annualSavingPercent(getPlan('pro'))
+
+  // Nothing to choose between: one price, or a misconfigured deployment with
+  // none. Rendering a one-option radiogroup would be a control that cannot do
+  // anything.
+  const showToggle = offeredCycles.length > 1
 
   return (
     <>
-      <CycleToggle cycle={cycle} onChange={setCycle} saving={saving} />
+      {showToggle ? (
+        <CycleToggle cycle={cycle} onChange={setCycle} saving={saving} offered={offeredCycles} />
+      ) : null}
 
       {/* Two cards since Team was held back from launch. flex-wrap + min-w 240
           keeps them side by side down to 544px (2×240 + 16px gap = 496px, which
