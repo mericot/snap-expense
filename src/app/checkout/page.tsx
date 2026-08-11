@@ -2,13 +2,14 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import CheckoutEmbed from './CheckoutEmbed'
 import {
+  PLANS,
   billingCadenceLabel,
   billingIntervalMonths,
   getPlan,
-  type BillingCycle,
   type PlanId,
 } from '@/lib/plans'
 import { billingCycleFromParam, paidPlanIdFromParam } from '@/lib/checkout-intent'
+import { priceIdFor } from '@/lib/stripe-prices'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 
 export const metadata: Metadata = {
@@ -18,23 +19,17 @@ export const metadata: Metadata = {
 }
 
 /**
- * The Stripe price for a plan on a given cycle.
+ * A missing price id means one of two very different things, and until now they
+ * were indistinguishable: either the plan is deliberately withheld from sale
+ * (Team, whose price id is unset in production on purpose), or the deployment is
+ * misconfigured and a plan people can see cannot actually be bought.
  *
- * Returning `undefined` is how a plan is switched off: the page redirects to
- * `/pricing` when there is no id. That is the second of the two gates keeping
- * hidden Team unreachable — leaving `STRIPE_TEAM_MONTHLY_PRICE_ID` unset in
- * production makes `/checkout?plan=team` bounce, whatever anyone types.
+ * Both still redirect to `/pricing` — bouncing is the safe outcome either way.
+ * The difference is that the second one now says so in the logs, because it is
+ * a bug and it presents to the user as the page mysteriously refreshing.
  */
-function priceIdFor(planId: PlanId, cycle: BillingCycle): string | undefined {
-  if (planId === 'pro') {
-    return cycle === 'monthly'
-      ? process.env.STRIPE_PRO_MONTHLY_PRICE_ID
-      : process.env.STRIPE_PRO_YEARLY_PRICE_ID
-  }
-  // Team is seat-based monthly only; billingCycleFromParam already collapses
-  // any other request to its default, so there is one price to return.
-  if (planId === 'team') return process.env.STRIPE_TEAM_MONTHLY_PRICE_ID
-  return undefined
+function isWithheldFromSale(planId: PlanId): boolean {
+  return !PLANS.some((plan) => plan.id === planId)
 }
 
 export default async function CheckoutPage({
@@ -82,6 +77,13 @@ export default async function CheckoutPage({
   const priceId = priceIdFor(planId, cycle)
 
   if (!priceId) {
+    if (!isWithheldFromSale(planId)) {
+      console.error(
+        `[/checkout] ${planId} is listed on /pricing but has no Stripe price id for its ${cycle} cycle. ` +
+          `Set STRIPE_${planId.toUpperCase()}_${cycle === 'monthly' ? 'MONTHLY' : 'YEARLY'}_PRICE_ID. ` +
+          'Until then this redirects to /pricing, which looks to the buyer like the page refreshing.',
+      )
+    }
     redirect('/pricing')
   }
 
