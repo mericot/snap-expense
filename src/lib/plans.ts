@@ -161,11 +161,30 @@ const PRO: Plan = {
     'Search across every year',
   ],
   cta: { label: `Start ${TRIAL_DAYS}-day trial`, href: '/checkout?plan=pro', emphasis: 'primary' },
-  highlight: 'Most people pick this',
+  // Deliberately an opinion, not a usage statistic. The previous copy ("Most
+  // people pick this") asserted a distribution of choices that nobody has
+  // measured — the product has not launched. "Recommended" says who is
+  // speaking and cannot be falsified by the first month's numbers.
+  highlight: 'Recommended',
 }
 
 /**
- * Team is defined but **not listed** — see PLANS below.
+ * Withheld from launch. Team is intentionally still defined, still reachable
+ * through `getPlan('team')`, and still wired end to end (checkout, webhook,
+ * return page, `Subscription.plan`) — it is simply absent from `PLANS`, so
+ * `/pricing` never renders it and nothing links to `/checkout?plan=team`.
+ *
+ * Two independent gates keep it unbuyable, which is why hiding it is not merely
+ * cosmetic. It is not listed in `PLANS`, and `/checkout` resolves its price id
+ * from `STRIPE_TEAM_MONTHLY_PRICE_ID` — unset in production — then redirects to
+ * `/pricing` when that is missing. So a hand-typed `/checkout?plan=team` does
+ * not reach a payment form at all. Retiring the price in Stripe would close the
+ * path a second time, without a deploy.
+ *
+ * To relaunch: add TEAM back to `PLANS`, set the price id, and give it a
+ * `prices` entry per cycle you intend to sell it on. No type changes and no
+ * migration — the database `check (plan in ('free','pro','team'))` already
+ * allows it.
  */
 const TEAM: Plan = {
   id: 'team',
@@ -189,17 +208,9 @@ const TEAM: Plan = {
 }
 
 /**
- * Display order on `/pricing`. **Team is deliberately absent.**
- *
- * Hidden rather than deleted, so bringing it back is adding it to this array
- * plus creating a live Stripe price — no type changes, no migration, and the
- * database `check (plan in ('free','pro','team'))` constraint already allows it.
- *
- * Two independent gates keep a hidden plan unreachable, which is why hiding is
- * safe rather than merely cosmetic: it is not rendered here, and `/checkout`
- * resolves its price id from `STRIPE_TEAM_MONTHLY_PRICE_ID` — unset in
- * production — then redirects to `/pricing` when that is missing. So a
- * hand-typed `/checkout?plan=team` cannot buy anything.
+ * Display order on `/pricing`. TEAM is held back from launch — see the comment
+ * above it. `BY_ID` below stays complete on purpose: an existing subscription
+ * row still has to resolve to a plan even when that plan is not for sale.
  */
 export const PLANS: readonly Plan[] = [FREE, PRO]
 

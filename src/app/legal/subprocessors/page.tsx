@@ -122,7 +122,7 @@ export default function SubprocessorsPage() {
               >
                 Data Processing Agreement
               </Link>
-              , we will notify Team plan customers at least 30 days before
+              , we will notify customers on a paid plan at least 30 days before
               adding or replacing a subprocessor. If you reasonably object to a
               new subprocessor, either party may terminate the affected Service
               with a prorated refund.

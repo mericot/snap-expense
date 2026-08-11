@@ -4,10 +4,12 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "Data Processing Agreement",
   description:
-    "Data Processing Agreement for snapExpense Team plan customers.",
+    "Data Processing Agreement for snapExpense customers on a paid plan.",
 };
 
-const LAST_UPDATED = "August 8, 2026";
+// Bumped from August 8 because this revision widens who the DPA covers (Team
+// plan → any paid plan). A change in scope, not a typo fix, so the date moves.
+const LAST_UPDATED = "August 10, 2026";
 
 export default function DpaPage() {
   return (
@@ -40,7 +42,7 @@ export default function DpaPage() {
                 Terms of Service
               </Link>{" "}
               between snapExpense (&ldquo;Processor&rdquo;) and the
-              organization subscribing to a Team plan
+              organization subscribing to a paid plan
               (&ldquo;Controller&rdquo;). It applies when snapExpense processes
               personal data on behalf of the Controller.
             </p>
@@ -265,7 +267,7 @@ export default function DpaPage() {
 
           <Section title="11. Term and termination">
             <p>
-              This DPA takes effect when the Controller subscribes to a Team
+              This DPA takes effect when the Controller subscribes to a paid
               plan and remains in effect for the duration of the subscription.
               Obligations relating to data deletion, confidentiality, and
               breach notification survive termination.
