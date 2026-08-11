@@ -40,10 +40,31 @@ create policy "Users can view own subscription"
   on subscriptions for select
   using (user_id = auth.uid());
 
--- Users can insert their own subscription (initial creation from checkout)
+-- Users can insert their own subscription (initial creation from checkout).
+--
+-- Constrained to a fresh free row. The original policy checked only
+-- `user_id = auth.uid()`, which left `plan` wide open — the statement it
+-- permitted was, in principle, inserting yourself a 'pro' row. That was not
+-- exploitable, but only by accident: the signup trigger below has already
+-- created the row and `user_id` is unique, so the insert conflicts. The
+-- protection came from another feature rather than from this policy, and it
+-- stopped holding the moment a row could legitimately be deleted — which
+-- /api/account/delete now does, through the service role.
+--
+-- Paid state arrives only from the Stripe webhook, which uses the service role
+-- and is not subject to RLS at all.
+--
+-- Tightened by migrations/2026-08-10-prelaunch-hardening.sql; reproduced here
+-- so a fresh project gets the correct policy without replaying migrations.
 create policy "Users can insert own subscription"
   on subscriptions for insert
-  with check (user_id = auth.uid());
+  with check (
+    user_id = auth.uid()
+    and plan = 'free'
+    and status = 'active'
+    and stripe_subscription_id is null
+    and stripe_customer_id is null
+  );
 
 -- Only the service role (webhook handler) should update subscriptions.
 -- No user-facing update/delete policies — Stripe webhooks use the service
@@ -82,7 +103,21 @@ create trigger on_auth_user_created
   for each row
   execute function create_default_subscription();
 
--- Helper: look up the current plan for a user (used by API routes to gate features)
+-- Helper: look up the current plan for a user.
+--
+-- Nothing in the app calls this today — the routes read the `subscriptions`
+-- row directly. It is kept because it is the natural place to put plan gating
+-- if that ever moves into the database.
+--
+-- Two things were fixed on it in migrations/2026-08-10-*, both reproduced here:
+--
+--   1. `set search_path` — it is `security definer`, and the 2026-08-09
+--      migration that pinned create_default_subscription() and
+--      check_rate_limit() missed this one. Same escalation vector, same fix.
+--   2. EXECUTE is revoked from anon and authenticated. It takes a user id as an
+--      argument and PostgREST publishes it at /rest/v1/rpc/get_user_plan, so
+--      while it was callable by signed-in users it would return any user's
+--      plan, status and billing period to anyone who asked.
 create or replace function get_user_plan(p_user_id uuid)
 returns table (
   plan text,
@@ -91,7 +126,10 @@ returns table (
   current_period_end timestamptz,
   cancel_at_period_end boolean,
   seats int
-) as $$
+)
+security definer
+set search_path = public, pg_temp
+as $$
 begin
   return query
     select
@@ -105,4 +143,9 @@ begin
     where s.user_id = p_user_id
     limit 1;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql;
+
+-- See point 2 above. Supabase grants EXECUTE on public functions to anon and
+-- authenticated by default, which is not what you want for a security definer
+-- function that takes a user id as an argument.
+revoke execute on function get_user_plan(uuid) from public, anon, authenticated;

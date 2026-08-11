@@ -31,8 +31,14 @@ const STATEMENTS = [
     body: 'No ad networks, no data brokers, no training on your receipts.',
   },
   {
+    // Was: "Download or wipe everything from Settings, any time."
+    //
+    // Half right. Wiping is in Settings; downloading is not — Export CSV lives
+    // on the receipts list (src/app/receipts/page.tsx, exportCSV at ~259 and
+    // the button at ~319). Anyone who took the sentence literally went to
+    // Settings looking for a download that was never there.
     title: 'Your data, exportable',
-    body: 'Download or wipe everything from Settings, any time.',
+    body: 'Export to CSV from your receipts. Wipe everything from Settings, any time.',
   },
   {
     title: 'Payments',
@@ -92,14 +98,30 @@ export default function Footer() {
           </Link>
         </nav>
 
-        {/* CCPA/CPRA applies if serving California residents. GDPR stays only
-            while actually serving EU users. "SOC 2 in progress" must come down
-            or become "SOC 2 Type II" once the audit resolves. An unearned
-            compliance badge is worse than no badge. */}
+        {/* Two badges removed 2026-08-10, acting on the instruction the previous
+            comment here left: "An unearned compliance badge is worse than no
+            badge."
+
+            "SOC 2 in progress" — gone. It asserts an audit is underway, which
+            is the strongest claim on this page and the one nothing in the
+            repository substantiates. If an audit genuinely is in progress this
+            is a one-line restore, and it should come back as "SOC 2 Type II"
+            once it resolves. Leaving it up on the chance that it is true is the
+            wrong way round for a compliance claim.
+
+            "GDPR" — gone, on the old comment's own condition that it "stays
+            only while actually serving EU users". lib/plans.ts is explicit that
+            this is a US entity selling to US customers, and even scopes the
+            refund window on that basis. Restore it if and when you sell into
+            the EU, alongside the DPA obligations that come with it.
+
+            "CCPA/CPRA" stays. It is the one of the three backed by something
+            real: California residents are plausible among US customers, and the
+            access and deletion rights it implies are actually implemented —
+            self-serve export from the receipts list, self-serve account
+            deletion in Settings, both working as of this branch. */}
         <div className="flex flex-wrap gap-2">
           <Badge>CCPA/CPRA</Badge>
-          <Badge>GDPR</Badge>
-          <Badge>SOC 2 in progress</Badge>
         </div>
       </div>
 
