@@ -26,22 +26,25 @@ export default function SubscriptionProvider({
   children: React.ReactNode
 }) {
   const { session, loading: sessionLoading } = useSession()
+  const userId = session?.user?.id ?? null
+
   const [plan, setPlan] = useState<Subscription['plan']>('free')
   const [status, setStatus] = useState<Subscription['status']>('active')
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    if (sessionLoading) return
-    if (!session?.user) {
-      setPlan('free')
-      setStatus('active')
-      setLoading(false)
-      return
-    }
-
+  // Reset to defaults as soon as the signed-in user changes, without waiting
+  // for an effect — this is a render-time state adjustment, not a side
+  // effect, so it must not live in useEffect.
+  const [trackedUserId, setTrackedUserId] = useState<string | null | undefined>(undefined)
+  if (!sessionLoading && trackedUserId !== userId) {
+    setTrackedUserId(userId)
     setPlan('free')
     setStatus('active')
-    setLoading(true)
+    setLoading(userId !== null)
+  }
+
+  useEffect(() => {
+    if (sessionLoading || !userId) return
 
     let active = true
 
@@ -49,7 +52,7 @@ export default function SubscriptionProvider({
       supabase
         .from('subscriptions')
         .select('plan, status')
-        .eq('user_id', session.user.id)
+        .eq('user_id', userId)
         .single()
     )
       .then(({ data }) => {
@@ -68,7 +71,7 @@ export default function SubscriptionProvider({
     return () => {
       active = false
     }
-  }, [session?.user?.id, sessionLoading])
+  }, [userId, sessionLoading])
 
   const value = useMemo(
     () => ({ plan, status, loading }),
