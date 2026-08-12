@@ -26,18 +26,26 @@ export default function SubscriptionProvider({
   children: React.ReactNode
 }) {
   const { session, loading: sessionLoading } = useSession()
+  const userId = session?.user?.id ?? null
+
   const [plan, setPlan] = useState<Subscription['plan']>('free')
   const [status, setStatus] = useState<Subscription['status']>('active')
-  // Tracks which user id the current plan/status reflect, rather than a
-  // separate `loading` boolean set synchronously in the effect — that
-  // pattern (setState before kicking off the fetch) is exactly what
-  // react-hooks/set-state-in-effect flags, since it forces an extra render.
-  const [loadedForUserId, setLoadedForUserId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  // Reset to defaults as soon as the signed-in user changes, without waiting
+  // for an effect — this is a render-time state adjustment, not a side
+  // effect, so it must not live in useEffect.
+  const [trackedUserId, setTrackedUserId] = useState<string | null | undefined>(undefined)
+  if (!sessionLoading && trackedUserId !== userId) {
+    setTrackedUserId(userId)
+    setPlan('free')
+    setStatus('active')
+    setLoading(userId !== null)
+  }
 
   useEffect(() => {
-    if (sessionLoading || !session?.user) return
+    if (sessionLoading || !userId) return
 
-    const userId = session.user.id
     let active = true
 
     Promise.resolve(
@@ -53,23 +61,22 @@ export default function SubscriptionProvider({
           setPlan(data.plan)
           setStatus(data.status)
         }
-        setLoadedForUserId(userId)
+        setLoading(false)
       })
       .catch(() => {
         if (!active) return
-        setLoadedForUserId(userId)
+        setLoading(false)
       })
 
     return () => {
       active = false
     }
-  }, [session?.user?.id, sessionLoading])
+  }, [userId, sessionLoading])
 
-  const value = useMemo<SubscriptionState>(() => {
-    if (sessionLoading) return { plan: 'free', status: 'active', loading: true }
-    if (!session?.user) return { plan: 'free', status: 'active', loading: false }
-    return { plan, status, loading: loadedForUserId !== session.user.id }
-  }, [sessionLoading, session?.user, plan, status, loadedForUserId])
+  const value = useMemo(
+    () => ({ plan, status, loading }),
+    [plan, status, loading]
+  )
 
   return (
     <SubscriptionContext.Provider value={value}>
