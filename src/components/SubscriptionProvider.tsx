@@ -28,28 +28,23 @@ export default function SubscriptionProvider({
   const { session, loading: sessionLoading } = useSession()
   const [plan, setPlan] = useState<Subscription['plan']>('free')
   const [status, setStatus] = useState<Subscription['status']>('active')
-  const [loading, setLoading] = useState(true)
+  // Tracks which user id the current plan/status reflect, rather than a
+  // separate `loading` boolean set synchronously in the effect — that
+  // pattern (setState before kicking off the fetch) is exactly what
+  // react-hooks/set-state-in-effect flags, since it forces an extra render.
+  const [loadedForUserId, setLoadedForUserId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (sessionLoading) return
-    if (!session?.user) {
-      setPlan('free')
-      setStatus('active')
-      setLoading(false)
-      return
-    }
+    if (sessionLoading || !session?.user) return
 
-    setPlan('free')
-    setStatus('active')
-    setLoading(true)
-
+    const userId = session.user.id
     let active = true
 
     Promise.resolve(
       supabase
         .from('subscriptions')
         .select('plan, status')
-        .eq('user_id', session.user.id)
+        .eq('user_id', userId)
         .single()
     )
       .then(({ data }) => {
@@ -58,11 +53,11 @@ export default function SubscriptionProvider({
           setPlan(data.plan)
           setStatus(data.status)
         }
-        setLoading(false)
+        setLoadedForUserId(userId)
       })
       .catch(() => {
         if (!active) return
-        setLoading(false)
+        setLoadedForUserId(userId)
       })
 
     return () => {
@@ -70,10 +65,11 @@ export default function SubscriptionProvider({
     }
   }, [session?.user?.id, sessionLoading])
 
-  const value = useMemo(
-    () => ({ plan, status, loading }),
-    [plan, status, loading]
-  )
+  const value = useMemo<SubscriptionState>(() => {
+    if (sessionLoading) return { plan: 'free', status: 'active', loading: true }
+    if (!session?.user) return { plan: 'free', status: 'active', loading: false }
+    return { plan, status, loading: loadedForUserId !== session.user.id }
+  }, [sessionLoading, session?.user, plan, status, loadedForUserId])
 
   return (
     <SubscriptionContext.Provider value={value}>
