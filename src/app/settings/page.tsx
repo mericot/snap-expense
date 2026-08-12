@@ -48,14 +48,36 @@ export default function SettingsPage() {
       })
   }, [session])
 
+  /**
+   * This used to be `if (data.url) { … }` with a bare `try/finally` — no catch,
+   * no else. Every failure therefore looked identical to the user: the button
+   * said "Loading…", said "Manage billing" again, and nothing happened. A
+   * customer trying to update a dying card had no way to tell that the click
+   * had failed rather than been ignored, and nothing was logged client-side to
+   * say otherwise.
+   *
+   * It is not a hypothetical path. The portal route throws whenever the live
+   * Customer Portal has no default configuration, which is its state until
+   * someone activates it in the dashboard — so the first person to click this
+   * in production would have hit exactly that dead button.
+   *
+   * Now every outcome is spoken: a non-2xx surfaces whatever the server said,
+   * and a 2xx without a URL is still treated as a failure rather than a
+   * successful no-op.
+   */
   const openPortal = useCallback(async () => {
     setPortalLoading(true)
     try {
       const res = await fetch('/api/stripe/portal', { method: 'POST' })
-      const data = await res.json()
-      if (data.url) {
-        window.location.href = data.url
-      }
+      // `.catch(() => null)` because a failure bad enough to bypass the route's
+      // own handler answers HTML, and parsing that must not replace the real
+      // error with a JSON syntax error.
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Something went wrong. Please try again.')
+      if (!data?.url) throw new Error('Something went wrong. Please try again.')
+      window.location.href = data.url
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
     } finally {
       setPortalLoading(false)
     }
