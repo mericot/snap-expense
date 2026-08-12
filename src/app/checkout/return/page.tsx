@@ -5,21 +5,11 @@ import { Card } from '@/components/ui'
 import { stripe } from '@/lib/stripe'
 import { createSupabaseAdmin } from '@/lib/supabase-admin'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
-import type { PlanId } from '@/lib/plans'
+import { priceToPlan } from '@/lib/plans'
 
 export const metadata: Metadata = {
   title: 'Welcome to Pro',
   robots: { index: false, follow: false },
-}
-
-function priceToPlan(priceId: string): PlanId {
-  if (priceId === process.env.STRIPE_PRO_YEARLY_PRICE_ID) {
-    return 'pro'
-  }
-  if (priceId === process.env.STRIPE_TEAM_MONTHLY_PRICE_ID) {
-    return 'team'
-  }
-  return 'free'
 }
 
 export default async function CheckoutReturnPage({

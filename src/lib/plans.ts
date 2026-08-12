@@ -220,6 +220,40 @@ export function getPlan(id: PlanId): Plan {
   return BY_ID[id]
 }
 
+/**
+ * Map a Stripe price id back to a plan.
+ *
+ * ⚠ EVERY price the product can be sold on must be listed here. The fallback is
+ * `'free'`, so a price this function does not recognise does not fail loudly —
+ * it silently downgrades a paying customer.
+ *
+ * This used to be defined separately in the webhook handler and in
+ * `/checkout/return`, and the two drifted: the webhook was updated when monthly
+ * Pro shipped, the checkout-return copy was not, and a monthly-Pro purchase got
+ * written back to `plan: 'free'` on the confirmation page moments after Stripe
+ * charged the card. One function, both call sites, so that class of bug cannot
+ * recur.
+ */
+export function priceToPlan(priceId: string): PlanId {
+  if (
+    priceId === process.env.STRIPE_PRO_YEARLY_PRICE_ID ||
+    priceId === process.env.STRIPE_PRO_MONTHLY_PRICE_ID
+  ) {
+    return 'pro'
+  }
+  if (priceId === process.env.STRIPE_TEAM_MONTHLY_PRICE_ID) {
+    return 'team'
+  }
+  // Reaching here means Stripe sent a price the app does not know about, which
+  // is a configuration error rather than a downgrade. Log it — the row is about
+  // to be written as free either way, and this is the only trace of why.
+  console.error(
+    `[priceToPlan] unrecognised price ${priceId} — treating as free. ` +
+      'If this is a real plan price, it is missing from priceToPlan and/or the environment.',
+  )
+  return 'free'
+}
+
 /* -------------------------------------------------------------------------- */
 /* Derived amounts                                                            */
 /* -------------------------------------------------------------------------- */
