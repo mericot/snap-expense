@@ -3,6 +3,7 @@ import { stripe } from '@/lib/stripe'
 import { createSupabaseAdmin } from '@/lib/supabase-admin'
 import { epochToISO, itemPeriodEnd } from '@/lib/stripe-subscription'
 import { priceToPlan } from '@/lib/plans'
+import { requiredEnv } from '@/lib/env'
 
 /**
  * Every write below throws on failure rather than swallowing the error.
@@ -124,13 +125,21 @@ export async function POST(req: Request) {
     return new Response('Missing stripe-signature header', { status: 400 })
   }
 
+  // Read outside the try on purpose. A whitespace-damaged or missing signing
+  // secret makes `constructEvent` fail exactly like a forged request, so inside
+  // the try it would return `400 Invalid signature` — a line that reads as
+  // someone probing the endpoint while in fact every genuine event is being
+  // rejected. Checkouts complete, subscriptions never activate, and the logs
+  // point at an attacker. Out here it throws a named error and a 500, which is
+  // also what Stripe retries against once the variable is fixed.
+  const webhookSecret = requiredEnv(
+    'STRIPE_WEBHOOK_SECRET',
+    process.env.STRIPE_WEBHOOK_SECRET,
+  )
+
   let event: Stripe.Event
   try {
-    event = stripe.webhooks.constructEvent(
-      body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET!
-    )
+    event = stripe.webhooks.constructEvent(body, sig, webhookSecret)
   } catch {
     return new Response('Invalid signature', { status: 400 })
   }
