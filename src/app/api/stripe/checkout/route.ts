@@ -1,9 +1,32 @@
 import { NextRequest } from 'next/server'
+import type Stripe from 'stripe'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createSupabaseAdmin } from '@/lib/supabase-admin'
 import { stripe } from '@/lib/stripe'
 import { TRIAL_DAYS } from '@/lib/plans'
 import { siteUrl } from '@/lib/site-url'
+
+/**
+ * Statuses that mean the customer is still on the hook for a subscription, and
+ * so must not be sold a second one on top of it.
+ *
+ * `incomplete` is deliberately absent. It means a first payment that never
+ * landed — Stripe expires those on its own after 23 hours — and treating it as
+ * blocking would strand a buyer whose card was declined once behind an error
+ * telling them they already subscribed. `canceled` and `incomplete_expired` are
+ * absent for the ordinary reason: those people are entitled to come back.
+ *
+ * `past_due` and `unpaid` *do* block. Someone whose card is failing needs to
+ * fix that card in the portal; buying a second subscription leaves the first
+ * one failing and starts billing them twice over.
+ */
+const BLOCKING_STATUSES = new Set<Stripe.Subscription.Status>([
+  'active',
+  'trialing',
+  'past_due',
+  'unpaid',
+  'paused',
+])
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,6 +69,51 @@ export async function POST(req: NextRequest) {
       .single()
 
     let customerId = sub?.stripe_customer_id
+
+    // /checkout already bounces an existing subscriber to /receipts, but that
+    // check reads the local `subscriptions` row, which is only ever as fresh as
+    // the last webhook that landed. Miss or delay one and the page waves the
+    // buyer straight through — and this route, which anything can POST to
+    // directly, had nothing of its own to say no with. The result was a second
+    // subscription on the same customer and two charges a month for one plan.
+    //
+    // So ask Stripe, which is the one account of this that cannot go stale. It
+    // also covers the states the page guard does not look at at all: past_due,
+    // unpaid and paused.
+    //
+    // Only when the customer already existed — one created moments ago on the
+    // line below has nothing to find, and the call would be a guaranteed miss.
+    if (customerId) {
+      // Omitting `status` returns everything except canceled and
+      // incomplete_expired, which is already close to what we want; the filter
+      // is written out anyway so the intent does not rest on that default. The
+      // limit is far above what a real customer accumulates — and if someone
+      // ever did exceed it, the extra page would be the oldest, which is the
+      // least likely to be the live one.
+      const existing = await stripe.subscriptions.list({
+        customer: customerId,
+        limit: 100,
+      })
+
+      const blocking = existing.data.find((item) => BLOCKING_STATUSES.has(item.status))
+
+      if (blocking) {
+        console.warn(
+          `[/api/stripe/checkout] ${user.id} already has subscription ${blocking.id} ` +
+            `(${blocking.status}); refusing to sell another`,
+        )
+        // 409 rather than 400: the request is well formed, it conflicts with
+        // state that already exists. `redirectTo` is what lets the client send
+        // them somewhere they can act instead of failing in place.
+        return Response.json(
+          {
+            error: 'You already have a subscription. You can manage it in Settings.',
+            redirectTo: '/settings',
+          },
+          { status: 409 },
+        )
+      }
+    }
 
     if (!customerId) {
       const customer = await stripe.customers.create({
