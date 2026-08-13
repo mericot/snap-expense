@@ -30,9 +30,26 @@ export default function CheckoutEmbed({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ priceId }),
     })
-    const data = await res.json()
-    if (!data.clientSecret) {
-      throw new Error(data.error || 'Failed to create checkout session')
+    // `.catch(() => null)` because a failure bad enough to bypass the route's
+    // own handler answers HTML, and parsing that must not replace the real
+    // error with a JSON syntax error.
+    const data = await res.json().catch(() => null)
+
+    // 409 means the account already has a subscription. That person does not
+    // belong in front of a payment form at all, so send them where they can
+    // actually act on it. Throwing instead would leave the embed area blank
+    // with the reason visible only in the console — the same silent dead end
+    // the billing portal button used to be.
+    if (res.status === 409 && data?.redirectTo) {
+      window.location.href = data.redirectTo
+      // Deliberately never resolves: the navigation above is already underway,
+      // and handing Stripe a value here would mount a checkout form onto a page
+      // in the middle of leaving.
+      return new Promise<string>(() => {})
+    }
+
+    if (!data?.clientSecret) {
+      throw new Error(data?.error || 'Failed to create checkout session')
     }
     return data.clientSecret
   }, [priceId])
