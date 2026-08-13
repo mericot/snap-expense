@@ -78,6 +78,17 @@
 body {
   background: var(--color-surface);
   color: var(--color-text);
+
+  /* The cookie bar is `position: fixed`, so it covers the bottom of the
+     viewport instead of taking a slot in flow. CookieBanner measures itself and
+     publishes the height here while it is up, so the end of the page — the
+     footer — can still be scrolled out from under it. Falls back to 0px, which
+     is every page view after the notice has been dismissed.
+
+     Do not turn this back into a reserved slot (a spacer element, or a `sticky`
+     bar). Space reserved below the footer is not covered by anything and paints
+     as bare background: that is the dead white scroll this replaced. */
+  padding-bottom: var(--cookie-banner-height, 0px);
 }
 
 /* Links: #52525b, hover #18181b (handoff README, "Global"). Motion is capped at

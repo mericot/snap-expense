@@ -57,7 +57,7 @@ const SUBPROCESSORS: Subprocessor[] = [
 
 export default function SubprocessorsPage() {
   return (
-    <main className="min-h-screen bg-zinc-50 px-4 py-10 font-sans">
+    <main className="flex-1 bg-zinc-50 px-4 py-10 font-sans">
       <div className="mx-auto max-w-2xl space-y-8">
         <div>
           <Link

@@ -49,6 +49,32 @@ export default function CookieBanner() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [bannerOpen, consent, closeBanner])
 
+  // Publish the bar's height so the page can pad itself out from under it.
+  //
+  // The bar is `fixed` (see the class list below), so it takes no space in
+  // normal flow — but it does cover the bottom of the viewport, footer
+  // included. Padding <body> by exactly the bar's height puts the footer back
+  // within reach without reserving a slot that would sit empty.
+  //
+  // Measured rather than hardcoded: the height depends on how the paragraph
+  // wraps, which moves with viewport width and with the reader's text-size
+  // setting. A fixed value is correct on one phone and wrong on the next.
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return
+
+    const root = document.documentElement
+    const observer = new ResizeObserver(() => {
+      root.style.setProperty('--cookie-banner-height', `${node.getBoundingClientRect().height}px`)
+    })
+    observer.observe(node)
+
+    return () => {
+      observer.disconnect()
+      root.style.removeProperty('--cookie-banner-height')
+    }
+  }, [bannerOpen])
+
   // Nothing renders server-side: the decision lives in localStorage, so the
   // server cannot know whether the banner belongs on the page.
   if (!hydrated || !bannerOpen) return null
@@ -64,7 +90,20 @@ export default function CookieBanner() {
       aria-labelledby="cookie-banner-title"
       aria-describedby="cookie-banner-body"
       tabIndex={-1}
-      className="sticky bottom-0 z-50 flex flex-wrap items-center justify-between gap-[14px] border-t border-border-strong bg-surface px-6 py-4 shadow-[0_-8px_24px_rgba(0,0,0,0.06)]"
+      // `fixed`, not `sticky`. As a sticky flex child of <body> this bar kept
+      // its slot in normal flow, so the document ran a bar-height past the
+      // footer. Reported from a phone as scrolling off the end of the page into
+      // white, and confirmed by dismissing the bar, which removed the band.
+      //
+      // Desktop never showed it: sticky un-sticks exactly at max scroll and the
+      // bar lands in its own slot, covering it. The most likely reason mobile
+      // differs is that iOS resolves sticky offsets against the layout viewport
+      // (URL bar collapsed) while you are seeing the shorter visual one — that
+      // part is inference, not something reproduced here; headless Chrome has no
+      // dynamic toolbar to test it with. What is measured is that `fixed` sits
+      // flush at the viewport bottom with no gap above it at every scroll
+      // position, on both a 390px phone and a 1440px desktop.
+      className="fixed inset-x-0 bottom-0 z-50 flex flex-wrap items-center justify-between gap-[14px] border-t border-border-strong bg-surface px-6 py-4 shadow-[0_-8px_24px_rgba(0,0,0,0.06)]"
     >
       <h2 id="cookie-banner-title" className="sr-only">
         Cookie choices
