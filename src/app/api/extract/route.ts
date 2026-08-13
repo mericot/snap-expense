@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { CATEGORIES } from '@/lib/categories'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createSupabaseAdmin } from '@/lib/supabase-admin'
+import { track, latencyBucket, sizeBucket } from '@/lib/analytics'
 import sharp from 'sharp'
 import heicConvert from 'heic-convert'
 
@@ -23,6 +24,12 @@ export async function POST(req: NextRequest) {
   // Set once the monthly quota has been consumed, so the catch block knows
   // whether there is anything to give back. See the refund note there.
   let quotaConsumedBy: string | null = null
+
+  // Analytics bookkeeping. Both are read by the catch block, which is the only
+  // place that knows an extraction failed for an infrastructure reason, and
+  // which runs after the `try` scope has gone.
+  const startedAt = Date.now()
+  let trackingUserId: string | null = null
 
   try {
     // Fail closed on a missing or unparseable Content-Length.
@@ -55,6 +62,12 @@ export async function POST(req: NextRequest) {
 
     const isPaid = sub && sub.plan !== 'free' && (sub.status === 'active' || sub.status === 'trialing')
 
+    trackingUserId = user.id
+    // Recorded on nearly every event below, because "how often does this happen"
+    // is almost always the wrong question without it — free and paid accounts
+    // fail, retry and hit limits in completely different proportions.
+    const planProps = { plan: sub?.plan ?? 'free', paid: Boolean(isPaid) }
+
     // Metering runs on the service role, not the caller's session.
     //
     // PostgREST publishes every public function as /rest/v1/rpc/<name>, and
@@ -85,6 +98,10 @@ export async function POST(req: NextRequest) {
       )
     }
     if (!allowed) {
+      track('rate_limited', {
+        userId: user.id,
+        props: { ...planProps, limit_per_hour: RATE_LIMIT_PER_HOUR },
+      })
       return NextResponse.json(
         { error: `Rate limit exceeded. Maximum ${RATE_LIMIT_PER_HOUR} extractions per hour.` },
         { status: 429 }
@@ -141,12 +158,32 @@ export async function POST(req: NextRequest) {
       quotaConsumedBy = user.id
 
       if (!withinQuota) {
+        // The upgrade prompt the user is about to see. Counting it is the only
+        // way to know whether the free tier converts or just annoys — and it
+        // pairs with `checkout_started` to answer that directly.
+        track('free_quota_exhausted', {
+          userId: user.id,
+          props: { ...planProps, monthly_limit: FREE_MONTHLY_LIMIT },
+        })
         return NextResponse.json(
           { error: `You have used all ${FREE_MONTHLY_LIMIT} free scans this month. Upgrade to Pro for unlimited scans.` },
           { status: 403 }
         )
       }
     }
+
+    // The upload itself: past validation, past both limits, about to cost money.
+    // Everything that follows either succeeds or fails, so this is the
+    // denominator for the funnel on /admin/analytics.
+    track('receipt_uploaded', {
+      userId: user.id,
+      props: {
+        ...planProps,
+        media_type: mediaType,
+        size: sizeBucket(contentLength),
+        heic: HEIC_TYPES.includes(mediaType),
+      },
+    })
 
     let finalBase64 = imageBase64
     let finalMediaType = mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
@@ -202,14 +239,44 @@ Rules:
     } catch {
       const match = text.match(/\{[\s\S]*\}/)
       if (!match) {
+        // A model failure, not an infrastructure one, so it never reaches the
+        // catch block — and it is the failure mode most worth watching, because
+        // it moves when the prompt or the model changes.
+        track('extraction_failed', {
+          userId: user.id,
+          props: { ...planProps, reason: 'unparseable_response', status: 422 },
+        })
         return NextResponse.json({ error: 'Model returned unparseable response', raw: text }, { status: 422 })
       }
       extracted = JSON.parse(match[0])
     }
 
-    if (extracted.category && !CATEGORIES.includes(extracted.category)) {
+    const coercedCategory = Boolean(
+      extracted.category && !CATEGORIES.includes(extracted.category),
+    )
+    if (coercedCategory) {
       extracted.category = 'Other'
     }
+
+    track('extraction_succeeded', {
+      userId: user.id,
+      props: {
+        ...planProps,
+        latency: latencyBucket(Date.now() - startedAt),
+        // The model's own confidence, and whether the fields that matter came
+        // back at all. Together these are the quality signal — a "success" that
+        // returns a null total is not much of one, and without this the
+        // dashboard would call it a win.
+        confidence: typeof extracted.confidence === 'string' ? extracted.confidence : 'unknown',
+        category: typeof extracted.category === 'string' ? extracted.category : 'none',
+        has_total: extracted.total !== null && extracted.total !== undefined,
+        has_date: extracted.date !== null && extracted.date !== undefined,
+        // True when the model invented a category and the server had to force it
+        // to 'Other'. A rise here means the prompt's category list has drifted
+        // from what receipts actually contain.
+        category_coerced: coercedCategory,
+      },
+    })
 
     return NextResponse.json(extracted)
   } catch (err) {
@@ -232,6 +299,32 @@ Rules:
       })
       if (refundError) console.error('[/api/extract] quota refund failed', refundError)
     }
+
+    // Named buckets rather than the error message. Messages from an SDK carry
+    // request ids and occasionally echo input back, which is exactly the kind of
+    // thing that must not accumulate in a reporting table; these four are what
+    // anyone would actually group by.
+    //
+    // `trackingUserId` is null when the throw happened before authentication —
+    // a malformed body, or Supabase being unreachable. The event is still worth
+    // recording; it simply has no actor.
+    const reason =
+      err instanceof APIConnectionTimeoutError ? 'anthropic_timeout'
+      : err instanceof RateLimitError ? 'anthropic_rate_limit'
+      : err instanceof APIError ? 'anthropic_api_error'
+      : 'internal_error'
+
+    track('extraction_failed', {
+      userId: trackingUserId,
+      props: {
+        reason,
+        latency: latencyBucket(Date.now() - startedAt),
+        // Whether the user got their free scan back. Worth recording because a
+        // refund that stops working is invisible otherwise — the request fails
+        // identically either way, and only the counter quietly drifts.
+        quota_refunded: quotaConsumedBy !== null,
+      },
+    })
 
     if (err instanceof APIConnectionTimeoutError) {
       return NextResponse.json({ error: 'Request timed out. Please try again.' }, { status: 504 })

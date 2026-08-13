@@ -3,8 +3,9 @@ import type Stripe from 'stripe'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createSupabaseAdmin } from '@/lib/supabase-admin'
 import { stripe } from '@/lib/stripe'
-import { TRIAL_DAYS } from '@/lib/plans'
+import { TRIAL_DAYS, priceToPlan } from '@/lib/plans'
 import { siteUrl } from '@/lib/site-url'
+import { track } from '@/lib/analytics'
 
 /**
  * Statuses that mean the customer is still on the hook for a subscription, and
@@ -173,6 +174,26 @@ export async function POST(req: NextRequest) {
       },
       metadata: { user_id: user.id },
       return_url: `${siteUrl()}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
+    })
+
+    // Intent, not revenue. The matching `subscription_activated` comes from the
+    // webhook, and the gap between the two is the checkout abandonment rate —
+    // which is why this is recorded here rather than on the return page, where
+    // only the people who completed would ever be counted.
+    //
+    // The price id is safe to store: it is one of a handful of fixed
+    // configuration values, already in the client bundle, and identifies a
+    // product rather than a person.
+    track('checkout_started', {
+      userId: user.id,
+      props: {
+        price_id: priceId,
+        plan: priceToPlan(priceId),
+        trial: isPro,
+        // Distinguishes a first purchase from someone coming back after a
+        // cancellation — the same event with quite different meanings.
+        returning_customer: Boolean(sub?.stripe_customer_id),
+      },
     })
 
     return Response.json({ clientSecret: session.client_secret })
