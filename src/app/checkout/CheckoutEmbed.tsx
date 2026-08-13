@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { loadStripe } from '@stripe/stripe-js'
 import {
   EmbeddedCheckoutProvider,
@@ -9,10 +9,33 @@ import {
 import Link from 'next/link'
 import { REFUND_WINDOW_DAYS } from '@/lib/plans'
 import PurchaseSteps from '@/components/PurchaseSteps'
+import { requiredEnv } from '@/lib/env'
 
-const stripePromise = loadStripe(
-  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
-)
+let _stripePromise: ReturnType<typeof loadStripe> | null = null
+
+/**
+ * Deferred rather than called at module scope, which is where it used to be.
+ *
+ * `requiredEnv` throws on a missing or whitespace-damaged key, and a throw
+ * during module evaluation happens before any component renders — it takes the
+ * whole `/checkout` route down with a blank screen, and no boundary can catch
+ * it because nothing has mounted yet. From inside render the same throw is an
+ * ordinary React error with the variable named in it.
+ *
+ * Memoised at module level because `loadStripe` injects Stripe.js on first
+ * call; running it per mount would add a script tag per mount.
+ */
+function getStripePromise() {
+  if (!_stripePromise) {
+    _stripePromise = loadStripe(
+      requiredEnv(
+        'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
+        process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+      ),
+    )
+  }
+  return _stripePromise
+}
 
 export default function CheckoutEmbed({
   planName,
@@ -24,6 +47,8 @@ export default function CheckoutEmbed({
   /** "monthly" or "yearly" — named so the buyer can see which price they are on. */
   cadence: string
 }) {
+  const stripePromise = useMemo(() => getStripePromise(), [])
+
   const fetchClientSecret = useCallback(async () => {
     const res = await fetch('/api/stripe/checkout', {
       method: 'POST',
