@@ -77,7 +77,14 @@ export async function POST(req: NextRequest) {
       p_user_id: user.id,
       p_max_requests: RATE_LIMIT_PER_HOUR,
     })
-    if (rlError || !allowed) {
+    if (rlError) {
+      console.error('[/api/extract] rate limit check failed', rlError)
+      return NextResponse.json(
+        { error: 'Could not verify rate limit. Please try again.' },
+        { status: 503 }
+      )
+    }
+    if (!allowed) {
       return NextResponse.json(
         { error: `Rate limit exceeded. Maximum ${RATE_LIMIT_PER_HOUR} extractions per hour.` },
         { status: 429 }
