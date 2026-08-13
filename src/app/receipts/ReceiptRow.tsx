@@ -214,15 +214,6 @@ export default function ReceiptRow({
 
   return (
     <div className="group flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-border-subtle px-[18px] py-[14px]">
-      {/* Receipt images are never stored — they are posted to /api/extract and
-          discarded — so this is a placeholder, not a broken image. The design's
-          diagonal stripe needs two greys that are not in the palette; a flat
-          token-coloured box says "nothing here yet" just as well. */}
-      <span
-        aria-hidden="true"
-        className="h-11 w-9 shrink-0 rounded-sm border border-border bg-surface-sunken"
-      />
-
       <div className="min-w-0 flex-1 basis-[8rem]">
         <p className="truncate text-[14px] font-medium text-text">{expense.merchant}</p>
         <p className="mt-0.5 text-[12px] text-text-faint">
@@ -234,8 +225,8 @@ export default function ReceiptRow({
               revert if the reviewer disagrees. */}
           {expense.tax != null ? ` · Tax ${money(expense.tax)}` : ''}
         </p>
-        {/* Below 640px the pill sits under the meta line: the designed row does
-            not fit a 36px thumbnail, a pill and an 84px amount at 420px. */}
+        {/* Below 640px the pill sits under the meta line: a truncated merchant,
+            a pill and an 84px amount do not read well side by side at 420px. */}
         <span className="mt-1.5 inline-flex sm:hidden">
           <Pill tone={status.tone}>{status.label}</Pill>
         </span>
