@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { requiredEnv } from './env'
 
 /**
@@ -12,6 +12,12 @@ import { requiredEnv } from './env'
  * two halves of the fix — interior whitespace is removed, and absence is a
  * named error rather than an `undefined` handed to an SDK.
  */
+
+// Repairs warn, so without this the suite prints a wall of yellow for cases
+// that are deliberately feeding it damaged values.
+beforeEach(() => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
+})
 
 describe('requiredEnv', () => {
   it('removes whitespace from the middle of a value, not just the ends', () => {
@@ -61,5 +67,78 @@ describe('requiredEnv', () => {
       expect((e as Error).message).toContain('STRIPE_SECRET_KEY')
       expect((e as Error).message).not.toContain(secret)
     }
+  })
+})
+
+/**
+ * The warning exists because the repair is otherwise invisible: the process
+ * gets a working key, the dashboard keeps the broken one, and the same patch
+ * happens again on the next boot forever.
+ *
+ * Each case imports a fresh copy of the module. The set that suppresses repeat
+ * warnings is module state, so a static import would leak the first case's
+ * warning into the rest.
+ */
+describe('requiredEnv repair warning', () => {
+  /**
+   * `vi.spyOn` on an already-spied method hands back the same mock, so its
+   * recorded calls survive from the previous case — hence the explicit clear
+   * alongside the module reset.
+   */
+  async function freshEnv() {
+    vi.resetModules()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warn.mockClear()
+    return { requiredEnv: (await import('./env')).requiredEnv, warn }
+  }
+
+  it('warns when it repairs a value', async () => {
+    const { requiredEnv: fresh, warn } = await freshEnv()
+
+    fresh('SUPABASE_SERVICE_ROLE_KEY', 'eyJhbGci\nOiJIUzI1')
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toContain('SUPABASE_SERVICE_ROLE_KEY')
+  })
+
+  it('stays silent for a value that needed no repair', async () => {
+    const { requiredEnv: fresh, warn } = await freshEnv()
+
+    fresh('NEXT_PUBLIC_SUPABASE_URL', 'https://abcdefg.supabase.co')
+
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('warns once per variable, not once per call', async () => {
+    const { requiredEnv: fresh, warn } = await freshEnv()
+
+    // The per-request paths — proxy.ts, supabase-server.ts — read the same
+    // variable on every page view. One line, not one per request.
+    for (let i = 0; i < 25; i++) {
+      fresh('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'eyJhbGci\nOiJIUzI1')
+    }
+
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('warns separately for each damaged variable', async () => {
+    const { requiredEnv: fresh, warn } = await freshEnv()
+
+    fresh('STRIPE_SECRET_KEY', 'sk_live\n_a')
+    fresh('STRIPE_WEBHOOK_SECRET', 'whsec\n_b')
+
+    expect(warn).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports how much whitespace it removed without printing the secret', async () => {
+    const { requiredEnv: fresh, warn } = await freshEnv()
+    const secret = 'sk_live_supersecret'
+
+    fresh('STRIPE_SECRET_KEY', `  ${secret}\n`)
+
+    const message = warn.mock.calls[0][0] as string
+    expect(message).toContain('3 whitespace')
+    // The whole point of logging a count rather than the value.
+    expect(message).not.toContain(secret)
   })
 })

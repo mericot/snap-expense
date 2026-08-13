@@ -15,7 +15,19 @@
  * `process.env.NEXT_PUBLIC_*` into the client bundle when it appears as a
  * literal member expression; a `process.env[name]` lookup is left alone and
  * would read `undefined` in the browser.
+ *
+ * A repair is also reported once per variable — see `warned`.
  */
+
+/**
+ * Variables already reported, so the warning does not repeat.
+ *
+ * `proxy.ts` and `supabase-server.ts` call this on every request, so an
+ * unconditional warn would put a line in the log for every page view and bury
+ * the thing it is trying to point at.
+ */
+const warned = new Set<string>()
+
 export function requiredEnv(name: string, value: string | undefined): string {
   const cleaned = value?.replace(/\s+/g, '')
   if (!cleaned) {
@@ -24,5 +36,20 @@ export function requiredEnv(name: string, value: string | undefined): string {
         `Set it for this environment and redeploy.`,
     )
   }
+
+  // Silently repairing means the malformed value in the dashboard is never
+  // fixed — it just gets patched again on every boot, and the next person to
+  // read it back out of Vercel finds the same broken string. The count is safe
+  // to print and enough to tell a wrapped paste from a stray trailing newline;
+  // the value itself is a secret and never goes to the log.
+  if (cleaned !== value && !warned.has(name)) {
+    warned.add(name)
+    console.warn(
+      `${name} contained ${value!.length - cleaned.length} whitespace ` +
+        `character(s) and was repaired in memory. The stored value is still ` +
+        `malformed — reset it for this environment and redeploy.`,
+    )
+  }
+
   return cleaned
 }
