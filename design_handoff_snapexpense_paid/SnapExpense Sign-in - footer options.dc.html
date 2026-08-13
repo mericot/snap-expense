@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+  body { margin: 0; background: #eeeeee; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  a { color: #52525b; }
+  a:hover { color: #18181b; }
+</style>
+</helmet>
+
+<section style="padding: 56px 48px; display: flex; flex-direction: column; gap: 28px">
+  <div style="display: flex; align-items: baseline; gap: 14px">
+    <div style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a">Turn 1 · Legal footer directions</div>
+    <div style="font-size: 13px; color: #a1a1aa">Same sign-in card, three levels of disclosure</div>
+  </div>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start">
+
+    <div id="1a" style="display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="font-size: 12px; font-weight: 700; background: #18181b; color: #fff; padding: 3px 8px; border-radius: 5px">1a</span>
+        <span style="font-size: 13px; color: #52525b">Minimal — consent line + link row</span>
+      </div>
+      <div style="width: 560px; background: #f7f7f7; border: 1px solid #e4e4e7; border-radius: 12px; padding: 64px 40px 32px; display: flex; flex-direction: column; align-items: center">
+        <div style="font-size: 30px; font-weight: 700; color: #18181b; letter-spacing: -0.02em">snapExpense</div>
+        <div style="font-size: 15px; color: #71717a; margin-top: 8px">Sign in to manage your receipts</div>
+        <div style="width: 100%; max-width: 400px; background: #fff; border: 1px solid #e4e4e7; border-radius: 10px; padding: 24px; margin-top: 28px; display: flex; flex-direction: column; gap: 8px">
+          <label style="font-size: 14px; color: #27272a">Email</label>
+          <div style="border: 1px solid #e4e4e7; border-radius: 8px; padding: 11px 13px; font-size: 14px; color: #c4c4c8">you@example.com</div>
+          <div style="background: #18181b; color: #fff; border-radius: 8px; padding: 13px; text-align: center; font-size: 15px; margin-top: 8px">Send magic link</div>
+          <div style="font-size: 12px; line-height: 1.5; color: #71717a; text-align: center; margin-top: 10px">By continuing you agree to our <a href="#" style="text-decoration: underline">Terms</a> and <a href="#" style="text-decoration: underline">Privacy Policy</a>.</div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 16px; margin-top: 40px; font-size: 12px; color: #71717a">
+          <a href="#" style="text-decoration: none">Privacy</a>
+          <a href="#" style="text-decoration: none">Terms</a>
+          <a href="#" style="text-decoration: none">Cookies</a>
+          <a href="#" style="text-decoration: none">Security</a>
+          <a href="#" style="text-decoration: none">Contact</a>
+        </div>
+        <div style="font-size: 12px; color: #a1a1aa; margin-top: 10px">© 2026 snapExpense</div>
+      </div>
+    </div>
+
+    <div id="1b" style="display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="font-size: 12px; font-weight: 700; background: #18181b; color: #fff; padding: 3px 8px; border-radius: 5px">1b</span>
+        <span style="font-size: 13px; color: #52525b">Trust-forward — states what happens to receipt data</span>
+      </div>
+      <div style="width: 560px; background: #f7f7f7; border: 1px solid #e4e4e7; border-radius: 12px; padding: 64px 40px 32px; display: flex; flex-direction: column; align-items: center">
+        <div style="font-size: 30px; font-weight: 700; color: #18181b; letter-spacing: -0.02em">snapExpense</div>
+        <div style="font-size: 15px; color: #71717a; margin-top: 8px">Sign in to manage your receipts</div>
+        <div style="width: 100%; max-width: 400px; background: #fff; border: 1px solid #e4e4e7; border-radius: 10px; padding: 24px; margin-top: 28px; display: flex; flex-direction: column; gap: 8px">
+          <label style="font-size: 14px; color: #27272a">Email</label>
+          <div style="border: 1px solid #e4e4e7; border-radius: 8px; padding: 11px 13px; font-size: 14px; color: #c4c4c8">you@example.com</div>
+          <div style="background: #18181b; color: #fff; border-radius: 8px; padding: 13px; text-align: center; font-size: 15px; margin-top: 8px">Send magic link</div>
+          <div style="font-size: 12px; line-height: 1.5; color: #71717a; text-align: center; margin-top: 10px">We email you a one-time link. No password stored. See <a href="#" style="text-decoration: underline">Terms</a> and <a href="#" style="text-decoration: underline">Privacy Policy</a>.</div>
+        </div>
+
+        <div style="width: 100%; margin-top: 40px; border-top: 1px solid #e4e4e7; padding-top: 24px; display: flex; flex-direction: column; gap: 18px">
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px">
+            <div style="display: flex; flex-direction: column; gap: 4px">
+              <div style="font-size: 12px; font-weight: 600; color: #27272a">Receipt images</div>
+              <div style="font-size: 12px; line-height: 1.45; color: #71717a">Encrypted at rest. Deleted 30 days after you delete the expense.</div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px">
+              <div style="font-size: 12px; font-weight: 600; color: #27272a">Never sold</div>
+              <div style="font-size: 12px; line-height: 1.45; color: #71717a">No ad networks, no data brokers, no training on your receipts.</div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px">
+              <div style="font-size: 12px; font-weight: 600; color: #27272a">Your data, exportable</div>
+              <div style="font-size: 12px; line-height: 1.45; color: #71717a">Download or wipe everything from Settings, any time.</div>
+            </div>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px">
+            <div style="display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: #71717a">
+              <a href="#" style="text-decoration: none">Privacy</a>
+              <a href="#" style="text-decoration: none">Terms</a>
+              <a href="#" style="text-decoration: none">Cookies</a>
+              <a href="#" style="text-decoration: none">DPA</a>
+              <a href="#" style="text-decoration: none">Subprocessors</a>
+            </div>
+            <div style="display: flex; gap: 8px; font-size: 11px; color: #71717a">
+              <span style="border: 1px solid #e4e4e7; border-radius: 4px; padding: 3px 7px">CCPA/CPRA</span>
+              <span style="border: 1px solid #e4e4e7; border-radius: 4px; padding: 3px 7px">GDPR</span>
+              <span style="border: 1px solid #e4e4e7; border-radius: 4px; padding: 3px 7px">SOC 2 in progress</span>
+            </div>
+          </div>
+          <div style="font-size: 12px; color: #a1a1aa">© 2026 snapExpense Inc. · San Francisco, CA</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="1c" style="display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="font-size: 12px; font-weight: 700; background: #18181b; color: #fff; padding: 3px 8px; border-radius: 5px">1c</span>
+        <span style="font-size: 13px; color: #52525b">Progressive — one line, details on demand</span>
+      </div>
+      <div style="width: 560px; background: #f7f7f7; border: 1px solid #e4e4e7; border-radius: 12px; padding: 64px 40px 32px; display: flex; flex-direction: column; align-items: center">
+        <div style="font-size: 30px; font-weight: 700; color: #18181b; letter-spacing: -0.02em">snapExpense</div>
+        <div style="font-size: 15px; color: #71717a; margin-top: 8px">Sign in to manage your receipts</div>
+        <div style="width: 100%; max-width: 400px; background: #fff; border: 1px solid #e4e4e7; border-radius: 10px; padding: 24px; margin-top: 28px; display: flex; flex-direction: column; gap: 8px">
+          <label style="font-size: 14px; color: #27272a">Email</label>
+          <div style="border: 1px solid #e4e4e7; border-radius: 8px; padding: 11px 13px; font-size: 14px; color: #c4c4c8">you@example.com</div>
+          <div style="background: #18181b; color: #fff; border-radius: 8px; padding: 13px; text-align: center; font-size: 15px; margin-top: 8px">Send magic link</div>
+          <div style="font-size: 12px; line-height: 1.5; color: #71717a; text-align: center; margin-top: 10px">By continuing you agree to our <a href="#" style="text-decoration: underline">Terms</a> and <a href="#" style="text-decoration: underline">Privacy Policy</a>.</div>
+        </div>
+
+        <div style="width: 100%; margin-top: 40px; border-top: 1px solid #e4e4e7; padding-top: 20px; display: flex; flex-direction: column; gap: 14px">
+          <div onClick="{{ toggle }}" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-size: 13px; color: #27272a" style-hover="color: #000">
+            <span>What we do with your data</span>
+            <span style="font-size: 11px; color: #71717a">{{ caret }}</span>
+          </div>
+          <sc-if value="{{ open }}" hint-placeholder-val="{{ true }}">
+            <div style="display: flex; flex-direction: column; gap: 12px; background: #fff; border: 1px solid #e4e4e7; border-radius: 8px; padding: 16px">
+              <div style="display: flex; gap: 12px">
+                <div style="font-size: 12px; font-weight: 600; color: #27272a; width: 120px; flex: none">What we collect</div>
+                <div style="font-size: 12px; line-height: 1.5; color: #71717a">Your email, the receipts you upload, and the amounts and merchants we read from them.</div>
+              </div>
+              <div style="display: flex; gap: 12px">
+                <div style="font-size: 12px; font-weight: 600; color: #27272a; width: 120px; flex: none">Why</div>
+                <div style="font-size: 12px; line-height: 1.5; color: #71717a">To build your expense reports and email you sign-in links. Nothing else.</div>
+              </div>
+              <div style="display: flex; gap: 12px">
+                <div style="font-size: 12px; font-weight: 600; color: #27272a; width: 120px; flex: none">Who else sees it</div>
+                <div style="font-size: 12px; line-height: 1.5; color: #71717a">Our hosting and OCR providers, listed on the <a href="#" style="text-decoration: underline">subprocessors page</a>. Never advertisers.</div>
+              </div>
+              <div style="display: flex; gap: 12px">
+                <div style="font-size: 12px; font-weight: 600; color: #27272a; width: 120px; flex: none">How long</div>
+                <div style="font-size: 12px; line-height: 1.5; color: #71717a">Until you delete it, then 30 days in backups. Close your account and it all goes.</div>
+              </div>
+            </div>
+          </sc-if>
+          <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; font-size: 12px; color: #71717a">
+            <div style="display: flex; flex-wrap: wrap; gap: 6px 16px">
+              <a href="#" style="text-decoration: none">Privacy</a>
+              <a href="#" style="text-decoration: none">Terms</a>
+              <a href="#" style="text-decoration: none">Cookie settings</a>
+              <a href="#" style="text-decoration: none">Do not sell my info</a>
+            </div>
+            <div style="color: #a1a1aa">© 2026 snapExpense</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1840,&quot;height&quot;:1000}}">
+class Component extends DCLogic {
+  state = { open: true };
+  renderVals() {
+    return {
+      open: this.state.open,
+      caret: this.state.open ? "Hide" : "Show",
+      toggle: () => this.setState(s => ({ open: !s.open }))
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -27,4 +27,21 @@ export type Expense = {
   total: number
   tax: number | null
   category: string | null
+  deleted_at: string | null
+}
+
+export type Subscription = {
+  id: string
+  created_at: string
+  updated_at: string
+  user_id: string
+  stripe_customer_id: string | null
+  stripe_subscription_id: string | null
+  stripe_price_id: string | null
+  plan: 'free' | 'pro' | 'team'
+  status: 'active' | 'trialing' | 'past_due' | 'canceled' | 'incomplete'
+  trial_ends_at: string | null
+  current_period_end: string | null
+  cancel_at_period_end: boolean
+  seats: number
 }

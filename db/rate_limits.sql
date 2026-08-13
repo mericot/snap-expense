@@ -17,10 +17,19 @@ create policy "Users can view own rate limits"
 -- Atomic check-and-increment. Returns true if the request is allowed.
 -- p_max_requests: the per-window cap (easy to change per tier later).
 -- Window is the current clock hour (e.g. 14:00–14:59).
+--
+-- `set search_path` for the same reason as create_default_subscription() in
+-- subscriptions.sql — see the long note there. This one is not currently
+-- broken: it is called over PostgREST, whose search_path does include `public`,
+-- so `rate_limits` resolves. It is pinned anyway because "works because of the
+-- caller's search_path" is the same latent bug, one caller away from biting.
 create or replace function check_rate_limit(
   p_user_id uuid,
   p_max_requests int default 20
-) returns boolean as $$
+) returns boolean
+security definer
+set search_path = public, pg_temp
+as $$
 declare
   v_window timestamptz := date_trunc('hour', now());
   v_count int;
@@ -33,7 +42,7 @@ begin
 
   return v_count <= p_max_requests;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql;
 
 -- Clean up old windows (optional — run periodically or via pg_cron)
 -- delete from rate_limits where window_start < now() - interval '24 hours';

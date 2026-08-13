@@ -8,15 +8,17 @@ const CATEGORIES = [
   { value: "billing", label: "Billing" },
   { value: "privacy", label: "Privacy" },
   { value: "account-deletion", label: "Account deletion" },
+  { value: "dpa", label: "DPA request" },
 ] as const;
 
-const CONTACT_EMAIL = "mericot.merit@gmail.com";
+const CONTACT_EMAIL = "support@snap-expenses.com";
 
 const SUBJECT_PREFIX: Record<string, string> = {
   general: "[snapExpense] General inquiry",
   billing: "[snapExpense] Billing inquiry",
   privacy: "[snapExpense] Privacy request",
   "account-deletion": "[snapExpense] Account deletion request",
+  dpa: "[snapExpense] DPA request",
 };
 
 export default function ContactPage() {
@@ -124,6 +126,21 @@ export default function ContactPage() {
             </p>
           )}
 
+          {category === "dpa" && (
+            <p className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-xs text-blue-800">
+              DPAs are available for customers on a paid plan. Please include your
+              organization name and any specific requirements. You can review
+              our standard DPA at{" "}
+              <Link
+                href="/legal/dpa"
+                className="underline hover:text-blue-900"
+              >
+                /legal/dpa
+              </Link>
+              .
+            </p>
+          )}
+
           <button
             type="submit"
             disabled={!isValid}
@@ -168,6 +185,30 @@ export default function ContactPage() {
                   className="underline hover:text-zinc-900"
                 >
                   Terms of Service
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/legal/refunds"
+                  className="underline hover:text-zinc-900"
+                >
+                  Refund Policy
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/legal/dpa"
+                  className="underline hover:text-zinc-900"
+                >
+                  Data Processing Agreement
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/legal/subprocessors"
+                  className="underline hover:text-zinc-900"
+                >
+                  Subprocessors
                 </Link>
               </li>
             </ul>

@@ -2,27 +2,141 @@
 @import "tailwindcss/theme.css";
 @import "tailwindcss/utilities.css" source("../**/*.{tsx,ts,jsx,js}");
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ---------------------------------------------------------------------------
+   Design tokens - snapExpense (design_handoff_snapexpense_paid/README.md)
+
+   The design is LIGHT-ONLY and monochrome. There is deliberately no dark mode
+   and no brand accent colour. Do not reintroduce a `prefers-color-scheme: dark`
+   block: the previous one pinned <body> light while leaving inherited text at
+   #ededed, which produced unreadable text under a dark OS theme.
+
+   The names below are the contract for tasks 01-05. Use the utility, never the
+   hex.
+--------------------------------------------------------------------------- */
+@theme {
+  /* Type ------------------------------------------------------------------ */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+    sans-serif;
+
+  /* Surfaces -------------------------------------------------------------- */
+  --color-page: #e8e8e8; /* page background outside the frame */
+  --color-surface: #ffffff; /* primary surface */
+  --color-surface-recessed: #f7f7f7; /* hero, pricing, sign-in panel */
+  --color-surface-sunken: #fafafa; /* footer, dropzone, quota row, summary */
+
+  /* Borders --------------------------------------------------------------- */
+  --color-border: #e4e4e7; /* default border */
+  --color-border-strong: #d4d4d8; /* buttons, dividers */
+  /* Added by task 03. The inbox draws its list container in --color-border and
+     the dividers *between* rows one step lighter, so the container reads as one
+     object rather than a stack of boxes. #e4e4e7 is too heavy for that job and
+     the design specifies #f4f4f5 for it. */
+  --color-border-subtle: #f4f4f5; /* dividers inside a bordered container */
+
+  /* Text ------------------------------------------------------------------ */
+  --color-text: #18181b; /* primary text; primary button background */
+  --color-text-title: #27272a; /* footer band titles, field labels (added) */
+  --color-text-secondary: #3f3f46;
+  --color-text-muted: #52525b; /* links, avatar initials */
+  --color-text-tertiary: #71717a; /* meta, footer links */
+  --color-text-faint: #a1a1aa; /* eyebrow, copyright */
+  --color-text-placeholder: #c4c4c8;
+
+  /* Status ---------------------------------------------------------------- */
+  --color-warning: #a16207; /* "Needs category" status only */
+  /* Error text only — form validation and failed requests. The handoff never
+   * specifies one (the mock has no error state), so this is added rather than
+   * invented per-page. It measures 6.29:1 against #ffffff and 6.03:1 against
+   * #fafafa, both clear of the 4.5:1 minimum for body text. It is a status
+   * colour, not an accent: nothing decorative may use it, and the text it
+   * colours must still read as an error with colour removed. */
+  --color-danger: #b91c1c;
+
+  /* Radii ----------------------------------------------------------------- *
+   * The design uses 4 / 7 / 8 / 10 / 12 / 999px. Tailwind already ships
+   * rounded-sm (4px), rounded-lg (8px) and rounded-xl (12px), and rounded-full
+   * covers 999px, so only the two missing steps are added here. They are named
+   * rather than numbered so they do not shadow Tailwind's scale - overriding
+   * --radius-lg would silently restyle every existing rounded-lg in the app. */
+  --radius-btn: 7px; /* small buttons */
+  --radius-card: 10px; /* cards, list containers */
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+/* ---------------------------------------------------------------------------
+   Base
+--------------------------------------------------------------------------- */
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Tailwind preflight already sets box-sizing: border-box on *, ::before and
+   ::after. Task 04's pricing cards depend on it; the rule below is a belt-and-
+   braces guard so a future preflight opt-out cannot break them silently. */
+*,
+::before,
+::after {
+  box-sizing: border-box;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-surface);
+  color: var(--color-text);
 }
+
+/* Links: #52525b, hover #18181b (handoff README, "Global"). Motion is capped at
+   150ms and limited to colour/border/opacity - nothing in this design moves. */
+a {
+  color: var(--color-text-muted);
+}
+
+a:hover {
+  color: var(--color-text);
+}
+
+a,
+button,
+input,
+select,
+textarea {
+  transition-property: color, background-color, border-color, opacity;
+  transition-duration: 150ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Focus ring
+
+   The design specifies no focus treatment; this is added for accessibility and
+   applied globally rather than per-component so page authors cannot forget it.
+   #18181b measures 17.71:1 against #ffffff and 16.97:1 against #fafafa - both
+   far above the 3:1 minimum for non-text UI. The 2px offset keeps the ring
+   legible around the dark primary button, where it sits on the surrounding
+   surface rather than on the button itself.
+
+   The selector is doubled deliberately. Tailwind's `focus:outline-none`
+   compiles to `.focus\:outline-none:focus`, which outranks a single
+   `:focus-visible` on specificity — one habitual utility in a page component
+   would silently delete the ring. `:focus-visible:focus-visible` ties on
+   specificity and wins on order. A component that genuinely needs a different
+   treatment should override the outline, not remove it.
+--------------------------------------------------------------------------- */
+:focus-visible:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   Utilities
+
+   text-pretty (text-wrap: pretty) and tabular-nums
+   (font-variant-numeric: tabular-nums) are Tailwind v4 core utilities - use
+   those directly for headlines / long body and for amount and step-number
+   columns. They are named here so tasks 01-05 do not invent duplicates.
+--------------------------------------------------------------------------- */
