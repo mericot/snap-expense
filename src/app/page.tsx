@@ -1,3 +1,4 @@
+import Image from 'next/image'
 import Link from 'next/link'
 import { Button, Card, Eyebrow } from '@/components/ui'
 
@@ -142,26 +143,34 @@ export default function Page() {
             </p>
           </div>
 
-          {/* PLACEHOLDER — must not ship to production.
-              A real 4:3 screenshot of the inbox with a receipt open is needed;
-              none exists in the handoff. The slot is built at the final aspect
-              ratio so dropping the image in is a one-line change. Flagged in
-              the PR. */}
+          {/* The product shot the placeholder here was standing in for: the
+              inbox with a receipt open.
+
+              It is a *rendered* depiction of the inbox, not a screen capture of
+              a live account — the merchants, dates and totals in it are made
+              up, which is also why it is not a privacy problem. It was drawn to
+              match the shipped UI: the same header, month summary, "What we
+              read" card, row treatment and free-quota row, in the same tokens.
+              That likeness is the whole value of it and nothing enforces it, so
+              if the inbox is redesigned this image is stale and has to be
+              re-made. A capture of the real running app is the better long-term
+              answer. Flagged in the PR.
+
+              Intrinsic 1600x1200 is the source's real size, so Next reserves the
+              4:3 box before the bytes arrive and the hero does not shift. */}
           <div className="min-w-[280px] max-w-[440px] flex-1">
-            <div
-              className="flex aspect-[4/3] items-center justify-center rounded-xl border border-border-strong"
-              style={{
-                // The prototype's #f0f0f1 / #e8e8ea stripe is approximated with
-                // the two nearest tokens rather than adding throwaway hexes to
-                // the shared token file for a placeholder that gets deleted.
-                backgroundImage:
-                  'repeating-linear-gradient(135deg, var(--color-surface-recessed) 0 8px, var(--color-page) 8px 16px)',
-              }}
-            >
-              <span className="rounded-md border border-border-strong bg-surface px-[10px] py-[6px] font-mono text-[12px] text-text-tertiary">
-                product shot — inbox with a receipt open
-              </span>
-            </div>
+            <Image
+              src="/hero-inbox.webp"
+              alt="The snapExpense inbox for March 2026, with a photographed receipt open above the merchant, date, total and tax read off it, and earlier receipts listed underneath."
+              width={1600}
+              height={1200}
+              /* The hero's only image and above the fold, so it is the LCP
+                 candidate. `priority` is deprecated as of Next 16; `preload` is
+                 the replacement and is what that prop always actually did. */
+              preload
+              sizes="(max-width: 768px) 100vw, 440px"
+              className="w-full rounded-xl border border-border-strong"
+            />
           </div>
         </div>
       </section>
