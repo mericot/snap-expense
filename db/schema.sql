@@ -21,7 +21,8 @@
 --   3. subscriptions.sql
 --   4. rate_limits.sql
 --   5. extraction_quota.sql
---   6. migrations/*.sql in date order
+--   6. analytics_events.sql
+--   7. migrations/*.sql in date order
 
 create table if not exists expenses (
   id          uuid           primary key default gen_random_uuid(),

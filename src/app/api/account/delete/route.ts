@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createSupabaseAdmin } from '@/lib/supabase-admin'
 import { stripe } from '@/lib/stripe'
+import { track } from '@/lib/analytics'
 
 /**
  * Delete the signed-in user's account and everything attached to it.
@@ -110,6 +111,21 @@ export async function POST() {
     console.error('[/api/account/delete] auth user delete failed', userDeleteError)
     return Response.json({ error: 'Could not delete your account. Please contact support.' }, { status: 500 })
   }
+
+  // Recorded with no user id, deliberately.
+  //
+  // `track` writes after the response has been sent, and by then `user.id` no
+  // longer exists in auth.users — so `analytics_events.user_id`, which is a
+  // foreign key, would reject the row outright and the deletion would be the
+  // one lifecycle event the dashboard never sees. Passing null is not a
+  // workaround: it is the same state every other event belonging to this
+  // account reaches a moment later, because that column is `on delete set null`
+  // precisely so erasure leaves counts intact without keeping a name attached
+  // to them.
+  //
+  // `had_subscription` is a plain boolean for the same reason — enough to tell
+  // paid churn from a free account leaving, with nothing pointing back at who.
+  track('account_deleted', { props: { had_subscription: Boolean(sub?.stripe_subscription_id) } })
 
   return Response.json({ ok: true })
 }

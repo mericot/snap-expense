@@ -4,6 +4,27 @@ import { createSupabaseAdmin } from '@/lib/supabase-admin'
 import { epochToISO, itemPeriodEnd } from '@/lib/stripe-subscription'
 import { priceToPlan } from '@/lib/plans'
 import { requiredEnv } from '@/lib/env'
+import { track } from '@/lib/analytics'
+
+/**
+ * A note on counting these events.
+ *
+ * The database writes in this file are idempotent by construction, which is why
+ * there is no event-id dedup table (see the block comment below). Analytics
+ * rows are not: they are append-only, so a Stripe redelivery — most likely when
+ * our 200 never reached Stripe — records the same activation twice.
+ *
+ * Rather than add the dedup table the writes do not need, every event here
+ * carries `stripe_event_id`. Stripe's id is stable across redeliveries of the
+ * same event, so exact revenue counts are a `count(distinct ...)` away:
+ *
+ *   select count(distinct props->>'stripe_event_id')
+ *   from analytics_events where name = 'subscription_activated';
+ *
+ * Worth knowing before quoting a number off the dashboard, which uses the plain
+ * count — redelivery is rare enough that the difference is noise for trends,
+ * and misleading only if someone reads it as an invoice.
+ */
 
 /**
  * Every write below throws on failure rather than swallowing the error.
@@ -19,7 +40,7 @@ import { requiredEnv } from '@/lib/env'
  * row state. That is why there is no event-id dedup table here — the writes are
  * idempotent by construction, which is a better property than remembering.
  */
-async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
+async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventId: string) {
   if (session.mode !== 'subscription') return
 
   const userId = session.metadata?.user_id
@@ -55,6 +76,22 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     )
 
   if (error) throw new Error(`checkout.session.completed sync failed: ${error.message}`)
+
+  // After the upsert, never before: this event means "the plan is granted", and
+  // recording it ahead of the write that grants it would make the dashboard
+  // disagree with what the customer actually has.
+  track('subscription_activated', {
+    userId: userId,
+    props: {
+      stripe_event_id: eventId,
+      plan: priceToPlan(priceId),
+      status: subscription.status,
+      // Separates a trial start from a paid conversion. Both arrive as the same
+      // Stripe event, and counting them together would report revenue on the day
+      // a free trial began.
+      trialing: subscription.status === 'trialing',
+    },
+  })
 }
 
 /**
@@ -66,11 +103,15 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
  * does mean "0 rows" must not be treated as an error, or Stripe would retry
  * those events forever.
  */
-async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+async function handleSubscriptionUpdated(
+  subscription: Stripe.Subscription,
+  eventId: string,
+  previous: Partial<Stripe.Subscription> | undefined,
+) {
   const priceId = subscription.items.data[0]?.price.id ?? ''
   const admin = createSupabaseAdmin()
 
-  const { error } = await admin
+  const { data, error } = await admin
     .from('subscriptions')
     .update({
       stripe_price_id: priceId,
@@ -81,14 +122,54 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
       cancel_at_period_end: subscription.cancel_at_period_end,
     })
     .eq('stripe_subscription_id', subscription.id)
+    .select('user_id')
 
   if (error) throw new Error(`customer.subscription.updated sync failed: ${error.message}`)
+
+  // The cancel-at-period-end *transition* — the customer deciding to leave, or
+  // deciding to stay after all. This is the churn signal worth acting on:
+  // `subscription_canceled` below fires when the paid period actually runs out,
+  // which can be months later and long past the point a win-back was possible.
+  //
+  // Detected from `previous_attributes`, not by reading our own row first.
+  // Stripe puts an attribute there exactly when this event changed it, so the
+  // key's presence *is* the transition — no second query, and no race against
+  // the update above having already overwritten the old value. A redelivered
+  // event repeats the same `previous_attributes`, so dedup stays a
+  // count(distinct stripe_event_id) away, same as every other webhook event.
+  const userId = data?.[0]?.user_id
+  if (userId && previous !== undefined && 'cancel_at_period_end' in previous) {
+    track(
+      subscription.cancel_at_period_end ? 'cancellation_scheduled' : 'cancellation_reverted',
+      {
+        userId,
+        props: {
+          stripe_event_id: eventId,
+          plan: priceToPlan(priceId),
+          // How much paid time was left when they decided. Cancelling the day
+          // after renewal and cancelling the day before are different signals
+          // about why.
+          days_until_period_end: daysUntil(itemPeriodEnd(subscription)),
+        },
+      },
+    )
+  }
 }
 
-async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+/** Whole days from now until a Stripe epoch-seconds timestamp; null when absent. */
+function daysUntil(epochSeconds: number | null | undefined): number | null {
+  if (!epochSeconds) return null
+  return Math.max(0, Math.round((epochSeconds * 1000 - Date.now()) / 86_400_000))
+}
+
+async function handleSubscriptionDeleted(subscription: Stripe.Subscription, eventId: string) {
   const admin = createSupabaseAdmin()
 
-  const { error } = await admin
+  // `.select('user_id')` is new: this event has no user id on it, and the row
+  // being updated is the only thing that knows whose subscription this was —
+  // the statement below is also the last moment it can be read, because it
+  // nulls `stripe_subscription_id` and nothing can match on it afterwards.
+  const { data, error } = await admin
     .from('subscriptions')
     .update({
       plan: 'free',
@@ -98,23 +179,53 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
       cancel_at_period_end: false,
     })
     .eq('stripe_subscription_id', subscription.id)
+    .select('user_id')
 
   if (error) throw new Error(`customer.subscription.deleted sync failed: ${error.message}`)
+
+  // Matching no row is a normal outcome here — see the note above these
+  // handlers — and it means there is genuinely nothing that was cancelled, so
+  // there is nothing to count either.
+  const userId = data?.[0]?.user_id
+  if (userId) {
+    track('subscription_canceled', {
+      userId,
+      props: {
+        stripe_event_id: eventId,
+        plan: priceToPlan(subscription.items.data[0]?.price.id ?? ''),
+      },
+    })
+  }
 }
 
-async function handlePaymentFailed(invoice: Stripe.Invoice) {
+async function handlePaymentFailed(invoice: Stripe.Invoice, eventId: string) {
   const sub = invoice.parent?.subscription_details?.subscription
   const subscriptionId = typeof sub === 'string' ? sub : sub?.id ?? null
   if (!subscriptionId) return
 
   const admin = createSupabaseAdmin()
 
-  const { error } = await admin
+  const { data, error } = await admin
     .from('subscriptions')
     .update({ status: 'past_due' })
     .eq('stripe_subscription_id', subscriptionId)
+    .select('user_id')
 
   if (error) throw new Error(`invoice.payment_failed sync failed: ${error.message}`)
+
+  const userId = data?.[0]?.user_id
+  if (userId) {
+    track('payment_failed', {
+      userId,
+      props: {
+        stripe_event_id: eventId,
+        // How many times Stripe has tried this invoice. A first failure is
+        // usually a card blip; the fourth is churn about to happen, and the
+        // difference is worth being able to see.
+        attempt: invoice.attempt_count ?? 0,
+      },
+    })
+  }
 }
 
 export async function POST(req: Request) {
@@ -147,16 +258,20 @@ export async function POST(req: Request) {
   try {
     switch (event.type) {
       case 'checkout.session.completed':
-        await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session)
+        await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session, event.id)
         break
       case 'customer.subscription.updated':
-        await handleSubscriptionUpdated(event.data.object as Stripe.Subscription)
+        await handleSubscriptionUpdated(
+          event.data.object as Stripe.Subscription,
+          event.id,
+          event.data.previous_attributes as Partial<Stripe.Subscription> | undefined,
+        )
         break
       case 'customer.subscription.deleted':
-        await handleSubscriptionDeleted(event.data.object as Stripe.Subscription)
+        await handleSubscriptionDeleted(event.data.object as Stripe.Subscription, event.id)
         break
       case 'invoice.payment_failed':
-        await handlePaymentFailed(event.data.object as Stripe.Invoice)
+        await handlePaymentFailed(event.data.object as Stripe.Invoice, event.id)
         break
     }
   } catch (err) {

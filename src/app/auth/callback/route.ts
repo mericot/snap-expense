@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createSupabaseRouteClient } from '@/lib/supabase-server'
 import { AUTH_ERROR_ROUTE, authErrorReason } from '@/app/auth/error/reasons'
 import { safeNext } from '@/lib/safe-next'
+import { trackSignIn } from '@/lib/analytics'
 
 /**
  * Magic-link landing route.
@@ -87,7 +88,7 @@ export async function GET(request: NextRequest) {
     return failWith('different_browser')
   }
 
-  const { error } = await supabase.auth.exchangeCodeForSession(code)
+  const { data: exchanged, error } = await supabase.auth.exchangeCodeForSession(code)
 
   if (error) {
     // A stale link clicked by someone who is already signed in is not a
@@ -98,6 +99,15 @@ export async function GET(request: NextRequest) {
     if (user) return applyCookies(goTo(SIGNED_IN_HOME))
 
     return failWith(authErrorReason(error.code ?? error.message))
+  }
+
+  // Signup or return visit? Supabase does not say — registration and sign-in
+  // are the same exchange — so trackSignIn decides, from the account's age plus
+  // a dedup check against a prior signed_up event. The reasoning, including why
+  // age alone would double-count a second sign-in in the first hour, lives with
+  // that function.
+  if (exchanged.user) {
+    trackSignIn(exchanged.user.id, exchanged.user.created_at)
   }
 
   return applyCookies(goTo(safeNext(params.get('next')) ?? SIGNED_IN_HOME))
