@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Terms of Service | snapExpense",
+  title: "Terms of Service",
   description:
     "Terms governing your use of the snapExpense receipt-tracking service.",
 };
@@ -55,10 +55,10 @@ export default function TermsPage() {
               activity that occurs under your snapExpense account. Notify us
               promptly at{" "}
               <a
-                href="mailto:mericot.merit@gmail.com"
+                href="mailto:support@snap-expenses.com"
                 className="underline hover:text-zinc-900"
               >
-                mericot.merit@gmail.com
+                support@snap-expenses.com
               </a>{" "}
               if you suspect unauthorized access.
             </p>
@@ -126,12 +126,19 @@ export default function TermsPage() {
               You may request a full refund within 14 days of any charge. To
               request a refund, email us at{" "}
               <a
-                href="mailto:mericot.merit@gmail.com"
+                href="mailto:support@snap-expenses.com"
                 className="underline hover:text-zinc-900"
               >
-                mericot.merit@gmail.com
+                support@snap-expenses.com
               </a>
-              . Refunds are processed to the original payment method.
+              . Refunds are processed to the original payment method. See our{" "}
+              <Link
+                href="/legal/refunds"
+                className="underline hover:text-zinc-900"
+              >
+                refund policy
+              </Link>{" "}
+              for full details.
             </p>
           </Section>
 
@@ -281,10 +288,10 @@ export default function TermsPage() {
             <p>
               Questions about these Terms? Email us at{" "}
               <a
-                href="mailto:mericot.merit@gmail.com"
+                href="mailto:support@snap-expenses.com"
                 className="underline hover:text-zinc-900"
               >
-                mericot.merit@gmail.com
+                support@snap-expenses.com
               </a>
               .
             </p>
