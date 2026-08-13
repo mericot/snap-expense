@@ -46,9 +46,19 @@ export default function RootLayout({
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
         {/* body is the sticky-footer column: the children wrapper takes the
-            slack, the footer sits under it, and the cookie banner is the last
-            flex child so `position: sticky; bottom: 0` pins it to the viewport
-            without ever covering the footer. */}
+            slack and the footer sits under it, so a short page still fills the
+            viewport.
+
+            The cookie banner is rendered last but is deliberately *not* part of
+            that column — it is `position: fixed`. It used to be `sticky
+            bottom-0`, on the reasoning that being the last flex child kept it
+            from covering the footer. It did, but a sticky element keeps its slot
+            in normal flow, so the document ran a banner-height past the footer
+            and that slot painted as bare page background. It read as scrolling
+            off the end of the page into white, and only on mobile, because
+            desktop closes the gap at max scroll and iOS does not. The footer is
+            kept clear now by the padding-bottom in globals.css, which the banner
+            sizes to itself. */}
         <SessionProvider>
           <SubscriptionProvider>
             <CookieConsentProvider>
