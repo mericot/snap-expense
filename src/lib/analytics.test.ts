@@ -17,6 +17,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   insert: vi.fn(),
+  // Terminal of the select chain trackSignIn's dedup lookup builds:
+  // .from().select().eq().eq().limit()
+  limit: vi.fn(),
   createAdmin: vi.fn(),
   after: vi.fn(),
 }))
@@ -29,7 +32,7 @@ vi.mock('@/lib/supabase-admin', () => ({
   createSupabaseAdmin: mocks.createAdmin,
 }))
 
-const { track, latencyBucket, sizeBucket } = await import('./analytics')
+const { track, trackSignIn, latencyBucket, sizeBucket } = await import('./analytics')
 
 /** Runs the callback `after()` was handed, the way the server eventually would. */
 async function flushAfter() {
@@ -41,7 +44,13 @@ async function flushAfter() {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.insert.mockResolvedValue({ error: null })
-  mocks.createAdmin.mockReturnValue({ from: () => ({ insert: mocks.insert }) })
+  mocks.limit.mockResolvedValue({ data: [], error: null })
+  mocks.createAdmin.mockReturnValue({
+    from: () => ({
+      insert: mocks.insert,
+      select: () => ({ eq: () => ({ eq: () => ({ limit: mocks.limit }) }) }),
+    }),
+  })
   // Default: a working request scope that captures the callback rather than
   // running it, which is what the real `after` does.
   mocks.after.mockImplementation(() => {})
@@ -155,6 +164,73 @@ describe('track — nothing escapes', () => {
 
     process.off('unhandledRejection', onRejection)
     expect(rejections).toEqual([])
+  })
+})
+
+/**
+ * trackSignIn decides between signed_up and signed_in. The account's age is
+ * only the outer gate; within the window, a prior signed_up row is what
+ * decides — that dedup is what stops a second sign-in in the first hour being
+ * counted as a second signup. Failure directions are deliberate and asserted:
+ * a broken dedup read falls back to the heuristic (may over-count once),
+ * never to reclassifying a real signup as a return.
+ */
+describe('trackSignIn', () => {
+  const RECENT = () => new Date(Date.now() - 5 * 60 * 1000).toISOString()
+  const OLD = () => new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
+
+  it('records signed_up for a fresh account with no prior signup event', async () => {
+    mocks.limit.mockResolvedValue({ data: [], error: null })
+
+    trackSignIn('user_1', RECENT())
+    await flushAfter()
+
+    expect(mocks.insert).toHaveBeenCalledWith({ name: 'signed_up', user_id: 'user_1', props: {} })
+  })
+
+  it('records signed_in when the same fresh account already has a signed_up event', async () => {
+    mocks.limit.mockResolvedValue({ data: [{ id: 1 }], error: null })
+
+    trackSignIn('user_1', RECENT())
+    await flushAfter()
+
+    expect(mocks.insert).toHaveBeenCalledWith({ name: 'signed_in', user_id: 'user_1', props: {} })
+  })
+
+  it('records signed_in for an old account without running the dedup lookup', async () => {
+    trackSignIn('user_1', OLD())
+    await flushAfter()
+
+    expect(mocks.limit).not.toHaveBeenCalled()
+    expect(mocks.insert).toHaveBeenCalledWith({ name: 'signed_in', user_id: 'user_1', props: {} })
+  })
+
+  it('falls back to the age heuristic when the dedup lookup errors', async () => {
+    mocks.limit.mockResolvedValue({ data: null, error: { message: 'permission denied' } })
+
+    trackSignIn('user_1', RECENT())
+    await flushAfter()
+
+    // Over-counting one signup beats reclassifying real ones as returns.
+    expect(mocks.insert).toHaveBeenCalledWith({ name: 'signed_up', user_id: 'user_1', props: {} })
+  })
+
+  it('falls back to the age heuristic when the dedup lookup throws', async () => {
+    mocks.limit.mockRejectedValue(new Error('connection reset'))
+
+    trackSignIn('user_1', RECENT())
+    await expect(flushAfter()).resolves.toBeUndefined()
+    expect(mocks.insert).toHaveBeenCalledWith({ name: 'signed_up', user_id: 'user_1', props: {} })
+  })
+
+  it('treats a missing or unparseable created_at as a returning user', async () => {
+    trackSignIn('user_1', undefined)
+    trackSignIn('user_2', 'not-a-date')
+    await flushAfter()
+
+    // Returning is the direction that cannot invent signups.
+    expect(mocks.insert).toHaveBeenCalledWith({ name: 'signed_in', user_id: 'user_1', props: {} })
+    expect(mocks.insert).toHaveBeenCalledWith({ name: 'signed_in', user_id: 'user_2', props: {} })
   })
 })
 

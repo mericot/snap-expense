@@ -64,6 +64,13 @@ export type AnalyticsEvent =
   | 'subscription_activated'
   | 'subscription_canceled'
   | 'payment_failed'
+  // Churn *intent*, distinct from churn. `subscription_canceled` fires when the
+  // paid period actually ends, which can be months after the customer clicked
+  // cancel; these two mark the decision itself, and the change of heart. The
+  // gap between `cancellation_scheduled` and `subscription_canceled` is the
+  // save window — the time in which a win-back would even be possible.
+  | 'cancellation_scheduled'
+  | 'cancellation_reverted'
 
 /**
  * Values allowed in `props`. Deliberately narrow — no nested objects and no
@@ -108,6 +115,22 @@ async function writeEvent(
 }
 
 /**
+ * Defer `work` past the response.
+ *
+ * `after` throws outside a request scope — in unit tests, and in any script
+ * that imports a route handler directly. Falling back to a floating promise
+ * keeps those callers working; the catch on the end is what stops it becoming
+ * an unhandled rejection, which in Node is fatal by default.
+ */
+function schedule(work: () => Promise<void>): void {
+  try {
+    after(work)
+  } catch {
+    void work().catch(() => {})
+  }
+}
+
+/**
  * Record an event. Returns immediately; the write happens after the response.
  *
  * Safe to call from Route Handlers, Server Components and Server Functions.
@@ -116,15 +139,65 @@ async function writeEvent(
  * awaitable is an invitation to do so.
  */
 export function track(name: AnalyticsEvent, options: TrackOptions = {}): void {
-  try {
-    after(() => writeEvent(name, options))
-  } catch {
-    // `after` throws outside a request scope — in unit tests, and in any script
-    // that imports a route handler directly. Falling back to a floating promise
-    // keeps those callers working; the catch on the end is what stops it
-    // becoming an unhandled rejection, which in Node is fatal by default.
-    void writeEvent(name, options).catch(() => {})
+  schedule(() => writeEvent(name, options))
+}
+
+/**
+ * How long after account creation an exchange can still count as the signup.
+ *
+ * Generous because it spans a human action: the account row is created when the
+ * magic link is *requested*, the event is recorded when it is *clicked*, and an
+ * email delivery plus someone finding it in their inbox sit in between. A
+ * minute would misfile most real signups as returning users.
+ */
+const SIGNUP_WINDOW_MS = 60 * 60 * 1000
+
+/**
+ * Record a completed magic-link exchange as `signed_up` or `signed_in`.
+ *
+ * Supabase does not say which it was: registration and sign-in are the same
+ * exchange against the same endpoint, and the session comes back identical
+ * either way. The account's age is the available signal, but alone it
+ * over-counts — a user who signs up and then signs in again within the window
+ * (second device, second link) would be two signups. So the window is only the
+ * outer gate; inside it, a prior `signed_up` row for the same user is what
+ * decides. Both lookups happen after the response, like every other write here.
+ *
+ * Failure modes are chosen deliberately. If the dedup read errors, the time
+ * heuristic stands alone and may double-count that one signup — better than a
+ * lookup failure silently reclassifying real signups as returns. Past the
+ * window everything is `signed_in`, which can only *under*-state signups.
+ */
+export function trackSignIn(userId: string, accountCreatedAt: string | null | undefined): void {
+  schedule(() => writeAuthEvent(userId, accountCreatedAt))
+}
+
+async function writeAuthEvent(
+  userId: string,
+  accountCreatedAt: string | null | undefined,
+): Promise<void> {
+  let name: AnalyticsEvent = 'signed_in'
+
+  const createdMs = accountCreatedAt ? new Date(accountCreatedAt).getTime() : NaN
+  if (Number.isFinite(createdMs) && Date.now() - createdMs < SIGNUP_WINDOW_MS) {
+    name = 'signed_up'
+    try {
+      // Served by the partial index on (user_id, created_at); user_id leads, so
+      // the extra name filter is a cheap re-check within one user's rows.
+      const admin = createSupabaseAdmin()
+      const { data, error } = await admin
+        .from('analytics_events')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('name', 'signed_up')
+        .limit(1)
+      if (!error && (data?.length ?? 0) > 0) name = 'signed_in'
+    } catch {
+      // Heuristic stands; see above.
+    }
   }
+
+  await writeEvent(name, { userId })
 }
 
 /**

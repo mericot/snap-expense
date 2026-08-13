@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createSupabaseRouteClient } from '@/lib/supabase-server'
 import { AUTH_ERROR_ROUTE, authErrorReason } from '@/app/auth/error/reasons'
 import { safeNext } from '@/lib/safe-next'
-import { track } from '@/lib/analytics'
+import { trackSignIn } from '@/lib/analytics'
 
 /**
  * Magic-link landing route.
@@ -101,26 +101,13 @@ export async function GET(request: NextRequest) {
     return failWith(authErrorReason(error.code ?? error.message))
   }
 
-  // Signup or return visit?
-  //
-  // Supabase does not say. Magic-link sign-in and magic-link registration are
-  // the same exchange against the same endpoint, and the session it hands back
-  // looks identical either way — so the account's own age is the only thing
-  // here that can tell them apart.
-  //
-  // The window is generous because it is spanning a human action: the account
-  // row is created when the link is *requested*, and the event is recorded when
-  // it is *clicked*, with an email delivery and someone finding it in their
-  // inbox in between. A minute would misfile most real signups as returning
-  // users. Anyone whose first click is more than an hour after requesting the
-  // link is counted as returning, which is wrong, and wrong in the direction
-  // that understates signups rather than inventing them.
-  const createdAt = exchanged.user?.created_at
-  const isNew =
-    createdAt !== undefined && Date.now() - new Date(createdAt).getTime() < 60 * 60 * 1000
-
+  // Signup or return visit? Supabase does not say — registration and sign-in
+  // are the same exchange — so trackSignIn decides, from the account's age plus
+  // a dedup check against a prior signed_up event. The reasoning, including why
+  // age alone would double-count a second sign-in in the first hour, lives with
+  // that function.
   if (exchanged.user) {
-    track(isNew ? 'signed_up' : 'signed_in', { userId: exchanged.user.id })
+    trackSignIn(exchanged.user.id, exchanged.user.created_at)
   }
 
   return applyCookies(goTo(safeNext(params.get('next')) ?? SIGNED_IN_HOME))

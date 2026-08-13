@@ -66,7 +66,8 @@ function share(part: number, whole: number): string {
 async function loadAnalytics(days: number) {
   await connection()
 
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+  const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000
+  const since = new Date(sinceMs).toISOString()
   const admin = createSupabaseAdmin()
 
   // Three independent queries, so they go together rather than in series.
@@ -76,9 +77,11 @@ async function loadAnalytics(days: number) {
     admin.rpc('analytics_extraction_funnel', { p_since: since }),
   ])
 
+  const dailyRows = (daily.data ?? []) as DailyCount[]
+
   return {
     totals: (totals.data ?? []) as Totals[],
-    daily: (daily.data ?? []) as DailyCount[],
+    uploads: fillDailySeries(dailyRows, 'receipt_uploaded', sinceMs),
     funnel: ((funnel.data as Funnel[] | null)?.[0] ?? {
       uploaded: 0,
       succeeded: 0,
@@ -89,6 +92,37 @@ async function loadAnalytics(days: number) {
     }) as Funnel,
     error: totals.error ?? daily.error ?? funnel.error,
   }
+}
+
+/**
+ * One point per calendar day over the whole window, zeros included.
+ *
+ * `analytics_daily_counts` only returns days that have events, and a chart
+ * that drops empty days renders them as adjacency — a week-long outage would
+ * be invisible, which is precisely the week the chart exists to show. UTC
+ * throughout, matching the `date_trunc` in the SQL.
+ */
+function fillDailySeries(
+  rows: DailyCount[],
+  name: string,
+  sinceMs: number,
+): { day: string; count: number }[] {
+  const DAY_MS = 24 * 60 * 60 * 1000
+  const counts = new Map(
+    rows.filter((row) => row.name === name).map((row) => [row.day, row.event_count]),
+  )
+
+  // Truncate both endpoints to their UTC date, the same day boundary the rows
+  // use, so the partial first day still gets its bar.
+  const first = Date.parse(new Date(sinceMs).toISOString().slice(0, 10))
+  const last = Date.parse(new Date().toISOString().slice(0, 10))
+
+  const series: { day: string; count: number }[] = []
+  for (let t = first; t <= last; t += DAY_MS) {
+    const day = new Date(t).toISOString().slice(0, 10)
+    series.push({ day, count: counts.get(day) ?? 0 })
+  }
+  return series
 }
 
 export default async function AnalyticsPage({
@@ -117,7 +151,7 @@ export default async function AnalyticsPage({
   // an error.
   const days = RANGES.some((r) => r.days === requested) ? requested : DEFAULT_RANGE
 
-  const { totals, daily, funnel, error: failed } = await loadAnalytics(days)
+  const { totals, uploads, funnel, error: failed } = await loadAnalytics(days)
 
   if (failed) {
     // Shown rather than thrown. The overwhelmingly likely cause is that
@@ -140,8 +174,8 @@ export default async function AnalyticsPage({
     )
   }
 
-  const uploadsByDay = daily.filter((row) => row.name === 'receipt_uploaded')
-  const peak = Math.max(1, ...uploadsByDay.map((row) => row.event_count))
+  const peak = Math.max(1, ...uploads.map((row) => row.count))
+  const anyUploads = uploads.some((row) => row.count > 0)
 
   return (
     <Shell days={days}>
@@ -185,28 +219,31 @@ export default async function AnalyticsPage({
           and this page is meant to stay free of client JavaScript. */}
       <section className="mt-10">
         <Eyebrow>Receipts uploaded per day</Eyebrow>
-        {uploadsByDay.length === 0 ? (
+        {!anyUploads ? (
           <Card padding="lg" className="mt-3">
             <p className="text-sm text-text-tertiary">No uploads in this range.</p>
           </Card>
         ) : (
           <Card padding="lg" className="mt-3">
+            {/* `uploads` covers every day in the window, zeros included, so a
+                quiet day is a visible gap rather than two busy days shaking
+                hands across it. */}
             <div className="flex h-40 items-end gap-1" role="img" aria-label="Daily upload counts">
-              {uploadsByDay.map((row) => (
+              {uploads.map((row) => (
                 <div key={row.day} className="group relative flex-1">
                   <div
                     className="w-full rounded-t-sm bg-text transition-opacity group-hover:opacity-70"
-                    style={{ height: `${(row.event_count / peak) * 150}px` }}
+                    style={{ height: `${(row.count / peak) * 150}px` }}
                   />
                   {/* Native tooltip. No hover card, no state, no hydration. */}
-                  <span className="absolute inset-0" title={`${row.day}: ${row.event_count}`} />
+                  <span className="absolute inset-0" title={`${row.day}: ${row.count}`} />
                 </div>
               ))}
             </div>
             <div className="mt-2 flex justify-between text-[13px] text-text-faint">
-              <span>{uploadsByDay[0]?.day}</span>
+              <span>{uploads[0]?.day}</span>
               <span>peak {peak}/day</span>
-              <span>{uploadsByDay[uploadsByDay.length - 1]?.day}</span>
+              <span>{uploads[uploads.length - 1]?.day}</span>
             </div>
           </Card>
         )}

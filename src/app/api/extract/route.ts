@@ -291,6 +291,10 @@ Rules:
     // 403 directly rather than throwing, so it never lands here. Best effort by
     // design — if the refund itself fails there is nothing useful left to do,
     // and failing the request twice helps nobody.
+    // Three-valued for the event below: null = there was nothing to refund (a
+    // paid account, or a throw before the quota was touched), true = the unit
+    // went back, false = the refund was attempted and itself failed.
+    let quotaRefunded: boolean | null = null
     if (quotaConsumedBy) {
       // A fresh admin client: the one above is scoped inside the try block, and
       // this path is reachable from a throw that happened before it existed.
@@ -298,6 +302,7 @@ Rules:
         p_user_id: quotaConsumedBy,
       })
       if (refundError) console.error('[/api/extract] quota refund failed', refundError)
+      quotaRefunded = !refundError
     }
 
     // Named buckets rather than the error message. Messages from an SDK carry
@@ -319,10 +324,11 @@ Rules:
       props: {
         reason,
         latency: latencyBucket(Date.now() - startedAt),
-        // Whether the user got their free scan back. Worth recording because a
-        // refund that stops working is invisible otherwise — the request fails
-        // identically either way, and only the counter quietly drifts.
-        quota_refunded: quotaConsumedBy !== null,
+        // The refund's *outcome*, not the attempt — false here is the signal
+        // that matters, because a refund that stops working is invisible
+        // otherwise: the request fails identically either way, and only the
+        // free user's counter quietly drifts. Null means nothing was consumed.
+        quota_refunded: quotaRefunded,
       },
     })
 

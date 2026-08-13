@@ -103,11 +103,15 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventId
  * does mean "0 rows" must not be treated as an error, or Stripe would retry
  * those events forever.
  */
-async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+async function handleSubscriptionUpdated(
+  subscription: Stripe.Subscription,
+  eventId: string,
+  previous: Partial<Stripe.Subscription> | undefined,
+) {
   const priceId = subscription.items.data[0]?.price.id ?? ''
   const admin = createSupabaseAdmin()
 
-  const { error } = await admin
+  const { data, error } = await admin
     .from('subscriptions')
     .update({
       stripe_price_id: priceId,
@@ -118,8 +122,44 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
       cancel_at_period_end: subscription.cancel_at_period_end,
     })
     .eq('stripe_subscription_id', subscription.id)
+    .select('user_id')
 
   if (error) throw new Error(`customer.subscription.updated sync failed: ${error.message}`)
+
+  // The cancel-at-period-end *transition* — the customer deciding to leave, or
+  // deciding to stay after all. This is the churn signal worth acting on:
+  // `subscription_canceled` below fires when the paid period actually runs out,
+  // which can be months later and long past the point a win-back was possible.
+  //
+  // Detected from `previous_attributes`, not by reading our own row first.
+  // Stripe puts an attribute there exactly when this event changed it, so the
+  // key's presence *is* the transition — no second query, and no race against
+  // the update above having already overwritten the old value. A redelivered
+  // event repeats the same `previous_attributes`, so dedup stays a
+  // count(distinct stripe_event_id) away, same as every other webhook event.
+  const userId = data?.[0]?.user_id
+  if (userId && previous !== undefined && 'cancel_at_period_end' in previous) {
+    track(
+      subscription.cancel_at_period_end ? 'cancellation_scheduled' : 'cancellation_reverted',
+      {
+        userId,
+        props: {
+          stripe_event_id: eventId,
+          plan: priceToPlan(priceId),
+          // How much paid time was left when they decided. Cancelling the day
+          // after renewal and cancelling the day before are different signals
+          // about why.
+          days_until_period_end: daysUntil(itemPeriodEnd(subscription)),
+        },
+      },
+    )
+  }
+}
+
+/** Whole days from now until a Stripe epoch-seconds timestamp; null when absent. */
+function daysUntil(epochSeconds: number | null | undefined): number | null {
+  if (!epochSeconds) return null
+  return Math.max(0, Math.round((epochSeconds * 1000 - Date.now()) / 86_400_000))
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription, eventId: string) {
@@ -221,7 +261,11 @@ export async function POST(req: Request) {
         await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session, event.id)
         break
       case 'customer.subscription.updated':
-        await handleSubscriptionUpdated(event.data.object as Stripe.Subscription)
+        await handleSubscriptionUpdated(
+          event.data.object as Stripe.Subscription,
+          event.id,
+          event.data.previous_attributes as Partial<Stripe.Subscription> | undefined,
+        )
         break
       case 'customer.subscription.deleted':
         await handleSubscriptionDeleted(event.data.object as Stripe.Subscription, event.id)
