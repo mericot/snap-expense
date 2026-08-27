@@ -6,6 +6,11 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    // Lets src/lib/receipt-schema.ts import "./categories.ts" with the extension,
+    // which is what allows scripts/eval-extraction.mjs to load that module
+    // directly from Node and measure the schema that actually ships. Safe only
+    // because noEmit is set, which it is.
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",

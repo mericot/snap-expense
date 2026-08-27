@@ -1,7 +1,7 @@
 import Anthropic, { APIConnectionTimeoutError, RateLimitError, APIError } from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
-import { CATEGORIES } from '@/lib/categories'
 import { MAX_TILES, planTiles } from '@/lib/receipt-tiles'
+import { RECEIPT_TOOL, validateReceipt } from '@/lib/receipt-schema'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createSupabaseAdmin } from '@/lib/supabase-admin'
 import { track, latencyBucket, sizeBucket } from '@/lib/analytics'
@@ -42,18 +42,18 @@ const ALLOWED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp
  * aborts if it cannot find it. Renaming or reshaping it means updating
  * readRouteConfig() there.
  */
-const EXTRACTION_PROMPT = `You are a receipt parser. Extract data from this receipt and return STRICT JSON only — no prose, no markdown fences, no explanation.
-
-Return exactly this shape:
-{"merchant":"string","date":"YYYY-MM-DD","total":0.00,"tax":0.00,"category":"string","confidence":"high"}
+const EXTRACTION_PROMPT = `You are a receipt parser. Read this receipt and record what you see by calling record_receipt exactly once.
 
 Rules:
-- Return JSON only. Nothing before or after the JSON object.
-- If a field is not legible, use null for that field and set confidence to "low".
+- If a field is not legible, pass null for it and set confidence to "low".
 - Never guess a total or tax — null beats a wrong number.
-- category must be exactly one of: ${CATEGORIES.join(', ')}. Never invent a category.
-- date must be YYYY-MM-DD format or null.
-- Refunds and returns are negative. If this is a return, refund or credit — REFUND, RETURN, CREDIT, or amounts already printed with a minus sign — then total and tax must both be negative. Never drop the minus sign.`
+- total is the final amount actually charged, including tax and tip. Prefer the line labelled Total, Amount Due or Balance Due. Never return the subtotal, the cash tendered, or the change due.
+- Transcribe every figure exactly as printed. Never compute a figure from the others, and never adjust one to make the receipt add up. If the printed numbers do not agree, record them as printed and set confidence to "low" — a receipt that disagrees with itself is something the reader needs to see, not something to tidy away.
+- subtotal is the pre-tax, pre-tip figure if the receipt prints one. On a card slip that is the line labelled AMOUNT, which is not the total.
+- Record tax and tip only when the receipt shows them. Null is correct otherwise; do not derive them.
+- Refunds and returns are negative. If this is a return, refund or credit — REFUND, RETURN, CREDIT, or amounts already printed with a minus sign — then total, subtotal and tax must all be negative. Never drop the minus sign.
+- A currency symbol is not a digit. Do not read a leading $ as part of the number.
+- date is the transaction date, as YYYY-MM-DD. Where the order is ambiguous, use the receipt's own cues — currency, language, address, spelled-out month names — and lower confidence rather than guess.`
 
 /**
  * Prepended when a receipt arrives as several tiles. Without it the model has
@@ -284,7 +284,7 @@ export async function POST(req: NextRequest) {
 
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 256,
+      max_tokens: 1024,
       // Reading a receipt is transcription, not composition — there is no
       // upside to sampling. Left unset this defaults to 1.0, which showed up as
       // the same image returning a different total between runs: the 60-item
@@ -314,34 +314,28 @@ export async function POST(req: NextRequest) {
           ],
         },
       ],
+      // The shape is the API's problem now, not the prompt's. tool_choice pins
+      // it to this one tool so there is no text-or-tool branch to handle.
+      tools: [RECEIPT_TOOL],
+      tool_choice: { type: 'tool', name: RECEIPT_TOOL.name },
     })
 
-    const text = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
+    const toolUse = message.content.find((block) => block.type === 'tool_use')
 
-    let extracted
-    try {
-      extracted = JSON.parse(text)
-    } catch {
-      const match = text.match(/\{[\s\S]*\}/)
-      if (!match) {
-        // A model failure, not an infrastructure one, so it never reaches the
-        // catch block — and it is the failure mode most worth watching, because
-        // it moves when the prompt or the model changes.
-        track('extraction_failed', {
-          userId: user.id,
-          props: { ...planProps, reason: 'unparseable_response', status: 422 },
-        })
-        return NextResponse.json({ error: 'Model returned unparseable response', raw: text }, { status: 422 })
-      }
-      extracted = JSON.parse(match[0])
+    if (!toolUse) {
+      // A model failure, not an infrastructure one, so it never reaches the
+      // catch block — and it is the failure mode most worth watching, because
+      // it moves when the prompt or the model changes. With tool_choice pinned
+      // this should be unreachable; if it starts appearing, the contract with
+      // the API has changed rather than the model having a bad day.
+      track('extraction_failed', {
+        userId: user.id,
+        props: { ...planProps, reason: 'no_tool_use', status: 422 },
+      })
+      return NextResponse.json({ error: 'Model returned no extraction' }, { status: 422 })
     }
 
-    const coercedCategory = Boolean(
-      extracted.category && !CATEGORIES.includes(extracted.category),
-    )
-    if (coercedCategory) {
-      extracted.category = 'Other'
-    }
+    const { receipt: extracted, reasons, downgraded, coercedCategory } = validateReceipt(toolUse.input)
 
     track('extraction_succeeded', {
       userId: user.id,
@@ -352,10 +346,17 @@ export async function POST(req: NextRequest) {
         // back at all. Together these are the quality signal — a "success" that
         // returns a null total is not much of one, and without this the
         // dashboard would call it a win.
-        confidence: typeof extracted.confidence === 'string' ? extracted.confidence : 'unknown',
-        category: typeof extracted.category === 'string' ? extracted.category : 'none',
-        has_total: extracted.total !== null && extracted.total !== undefined,
-        has_date: extracted.date !== null && extracted.date !== undefined,
+        confidence: extracted.confidence,
+        category: extracted.category ?? 'none',
+        has_total: extracted.total !== null,
+        has_date: extracted.date !== null,
+        // Which server-side checks fired, and whether any of them contradicted
+        // the model. `downgraded` is the interesting one: the model said "high"
+        // and the receipt's own arithmetic said otherwise. That is the signal
+        // the corrupted-digit failure would have raised, and it raised nothing
+        // before these checks existed.
+        checks_failed: reasons.length > 0 ? reasons.join(',') : 'none',
+        confidence_downgraded: downgraded,
         // True when the model invented a category and the server had to force it
         // to 'Other'. A rise here means the prompt's category list has drifted
         // from what receipts actually contain.
