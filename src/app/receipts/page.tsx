@@ -117,8 +117,29 @@ function readToBase64(file: File): Promise<{ images: string[]; mediaType: string
 // ── App (authenticated) ──────────────────────────────────────────────────────
 
 function App({ session }: { session: Session }) {
-  const { plan, status: subStatus } = useSubscription()
+  const { plan, status: subStatus, loading: subLoading } = useSubscription()
   const isPaid = plan !== 'free' && (subStatus === 'active' || subStatus === 'trialing')
+
+  /**
+   * Whether the plan is actually known yet.
+   *
+   * SubscriptionProvider starts at `plan: 'free'` and corrects once its query
+   * returns, so for the first few hundred milliseconds every account looks like
+   * a free one. The page took that at face value and rendered the free tier
+   * optimistically: measured on a paid account, the "0 of 10 free receipts" row
+   * with its upgrade link appeared at 12ms and did not go away until between
+   * 219ms and 532ms. A paying customer saw it on every single page load.
+   *
+   * Worse before the quota fix, when `usedThisMonth` counted saved receipts: any
+   * paid account with ten receipts in a month flashed the full upgrade wall,
+   * dropzone and all.
+   *
+   * Not knowing is its own state, and the honest thing to render for it is
+   * nothing tier-specific. The server enforces the real limit regardless, so
+   * erring open here costs nothing — an over-quota scan is still refused, just
+   * by the side that actually knows.
+   */
+  const tierKnown = !subLoading
   const inputRef = useRef<HTMLInputElement>(null)
   const [status, setStatus] = useState<
     'idle' | 'loading' | 'done' | 'saving' | 'saved' | 'error'
@@ -354,7 +375,7 @@ function App({ session }: { session: Session }) {
   }
 
   const reviewing = status === 'done' || status === 'saving'
-  const quotaReached = !isPaid && usedThisMonth >= FREE_MONTHLY_LIMIT
+  const quotaReached = tierKnown && !isPaid && usedThisMonth >= FREE_MONTHLY_LIMIT
   const showDropzone = !reviewing && status !== 'saved' && !quotaReached
 
   return (
@@ -486,7 +507,7 @@ function App({ session }: { session: Session }) {
                     ))
                   )}
 
-                  {isCurrentMonth && !isPaid && (
+                  {isCurrentMonth && tierKnown && !isPaid && (
                     <div className="flex flex-wrap items-center justify-between gap-3 bg-surface-sunken px-[18px] py-[14px]">
                       <p className={`text-[13px] ${usedThisMonth >= FREE_MONTHLY_LIMIT ? 'font-medium text-text' : 'text-text-muted'}`}>
                         {usedThisMonth >= FREE_MONTHLY_LIMIT
