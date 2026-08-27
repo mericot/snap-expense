@@ -108,6 +108,37 @@ export function needsReview(expense: Expense) {
 }
 
 /**
+ * An already-saved receipt that looks like the one being saved.
+ *
+ * Merchant, date and total together. Merchant is compared case-insensitively
+ * because the extraction is not consistent about it — "The Home Depot" and
+ * "THE HOME DEPOT" both occur in real rows, and a case-sensitive match would
+ * miss exactly the duplicates it exists to catch.
+ *
+ * Totals are compared as numbers: Postgres returns `numeric` as a string, so
+ * "227.50" and 227.5 are the same receipt and a `===` would disagree.
+ *
+ * A null merchant, date or total never matches. Those receipts cannot be saved
+ * anyway, and treating null as equal to null would make every incomplete scan
+ * look like a duplicate of every other.
+ */
+export function findDuplicate(
+  expenses: Expense[],
+  candidate: { merchant: string | null; date: string | null; total: number | null },
+): Expense | null {
+  if (!candidate.merchant || !candidate.date || candidate.total == null) return null
+  const merchant = candidate.merchant.trim().toLowerCase()
+  return (
+    expenses.find(
+      (e) =>
+        e.date === candidate.date &&
+        Number(e.total) === Number(candidate.total) &&
+        (e.merchant ?? '').trim().toLowerCase() === merchant,
+    ) ?? null
+  )
+}
+
+/**
  * Group receipts by the month of `expenses.date`, newest month first and
  * newest receipt first within each month.
  *

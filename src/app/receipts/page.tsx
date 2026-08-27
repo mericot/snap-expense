@@ -18,6 +18,7 @@ import { ALLOWED_TYPES, FREE_MONTHLY_LIMIT, HEIC_TYPES } from './constants'
 import { JPEG_QUALITY, planTiles } from '@/lib/receipt-tiles'
 import {
   currentMonthKey,
+  findDuplicate,
   groupByMonth,
   monthLabel,
   monthMeta,
@@ -169,6 +170,21 @@ function App({ session }: { session: Session }) {
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
   }, [])
   const [expenses, setExpenses] = useState<Expense[]>([])
+
+  /**
+   * A saved receipt matching the one under review, if there is one.
+   *
+   * Nothing in the schema stops the same receipt being saved twice — no unique
+   * constraint, no idempotency key — and at volume it is easy to do: the test
+   * account collected two identical $12,102.57 rows three minutes apart while
+   * this was being built.
+   *
+   * A warning rather than a block, because same-merchant, same-day, same-total
+   * purchases are genuinely possible — two identical coffees, a re-order — and
+   * refusing them would be wrong more often than it was right. Set only after
+   * the first save attempt, so the second press means "yes, I know".
+   */
+  const [duplicateOf, setDuplicateOf] = useState<Expense | null>(null)
   const [scansThisMonth, setScansThisMonth] = useState(0)
 
   /**
@@ -265,6 +281,7 @@ function App({ session }: { session: Session }) {
     setResult(null)
     setError(null)
     setPreview(null)
+    setDuplicateOf(null)
     // Batch counters go with the form. A halted batch never reaches here — it
     // leaves its explanation up until the next upload replaces it.
     setBatch({ total: 0, done: 0, halted: null, skipped: [] })
@@ -305,6 +322,7 @@ function App({ session }: { session: Session }) {
     setError(null)
     setResult(null)
     setPreview(null)
+    setDuplicateOf(null)
 
     if (!isPaid && usedThisMonth >= FREE_MONTHLY_LIMIT) {
       haltQueue(
@@ -377,6 +395,17 @@ function App({ session }: { session: Session }) {
       setError('Cannot save — merchant, date, and total are required.')
       return
     }
+    // Matched against the list already in memory rather than a round trip: it
+    // holds every non-deleted receipt and is refreshed after each save, so it
+    // is the same set the user is looking at.
+    if (!duplicateOf) {
+      const match = findDuplicate(expenses, result)
+      if (match) {
+        setDuplicateOf(match)
+        return
+      }
+    }
+
     setStatus('saving')
     const { error: dbError } = await supabase.from('expenses').insert({
       user_id: session.user.id,
@@ -604,6 +633,7 @@ function App({ session }: { session: Session }) {
                         preview={preview}
                         saving={status === 'saving'}
                         error={status === 'done' ? error : null}
+                        duplicateOf={duplicateOf}
                         onSave={handleSave}
                         onDiscard={discardAndAdvance}
                       />

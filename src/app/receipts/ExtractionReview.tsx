@@ -1,7 +1,8 @@
 'use client'
 
 import { Button, Card, Pill } from '@/components/ui'
-import { money } from './format'
+import type { Expense } from '@/lib/supabase'
+import { money, shortDate } from './format'
 
 /**
  * The review step between "we read your receipt" and "saved".
@@ -25,6 +26,7 @@ export default function ExtractionReview({
   preview,
   saving,
   error,
+  duplicateOf,
   onSave,
   onDiscard,
 }: {
@@ -32,6 +34,12 @@ export default function ExtractionReview({
   preview: string | null
   saving: boolean
   error: string | null
+  /**
+   * An already-saved receipt with the same merchant, date and total. Set only
+   * after the first save attempt, so the warning appears in response to the
+   * action rather than pre-emptively second-guessing every scan.
+   */
+  duplicateOf: Expense | null
   onSave: () => void
   onDiscard: () => void
 }) {
@@ -78,9 +86,22 @@ export default function ExtractionReview({
           ))}
         </dl>
 
+        {duplicateOf && (
+          <div className="border-b border-border-subtle px-[18px] py-[14px]">
+            <p role="alert" className="text-[13px] text-warning">
+              You already have a receipt for {duplicateOf.merchant} on{' '}
+              {shortDate(duplicateOf.date)} for {money(Number(duplicateOf.total))}.
+            </p>
+            <p className="mt-1 text-[13px] text-text-tertiary">
+              This may be the same receipt scanned twice. Save it anyway if it is a
+              separate purchase.
+            </p>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-2 px-[18px] py-[14px]">
           <Button size="sm" onClick={onSave} disabled={saving}>
-            {saving ? 'Saving…' : 'Save receipt'}
+            {saving ? 'Saving…' : duplicateOf ? 'Save anyway' : 'Save receipt'}
           </Button>
           <Button size="sm" variant="outline" onClick={onDiscard} disabled={saving}>
             Discard
