@@ -70,9 +70,41 @@ native width, sent as consecutive image blocks in one request.
 
 The failing fixture returns `date 2026-08-20, total 10035.62, tax 590.33` on all three passes.
 
+## Attribution — which change did the work
+
+Both changes were measured independently, 3 passes each, so the gain is not
+attributed to the wrong one.
+
+| Geometry | `temperature` | Date | Total | Tax | Stable across 3 passes |
+|---|---|---|---|---|---|
+| long-edge (old) | unset (1.0) | 88% | 96% | 88% | 2/8 |
+| long-edge (old) | **0** | 88% | **100%** | 88% | 7/8 |
+| **tiled** | unset (1.0) | **100%** | **100%** | **100%** | 2/8 |
+| **tiled** | **0** | **100%** | **100%** | **100%** | **8/8** |
+
+Read the second row carefully, because it is the trap. Setting `temperature: 0`
+without tiling moves total 96% -> 100% and stability 2/8 -> 7/8. It looks like a
+fix. It is not: date and tax stay at 88%, and the failing fixture goes from
+*intermittently* wrong to *reliably* wrong —
+
+```
+old geometry, temperature 0, all three passes identical:
+  date 2025-08-20   total 10035.62   tax 590.23   confidence "high"
+  truth: date 2026-08-20, total 10035.62, tax 590.33
+```
+
+`2026`->`2025` and `590.33`->`590.23` are misreads of a squashed image. Sampling
+never caused them, so removing sampling never fixed them — it only stopped them
+moving. Shipped alone, this change would have improved two headline numbers and
+left the money wrong, with the model still reporting `confidence: "high"`.
+
+Tiling is what makes them correct. `temperature: 0` is worth keeping — it removes
+the intermittent leading digit and makes the eval reproducible — but it is the
+second-order change, and the commits are split so the record shows that.
+
 ## Cost
 
-Input tokens rise 2.37x (1,048 → 2,484 per call averaged over the set; only tall receipts
+Input tokens rise 2.33x (1,048 → 2,484 per call averaged over the set; only tall receipts
 tile at all). `NOTES.md` puts current extraction at ~$0.0025/receipt, so this is roughly a
 half-cent per long receipt.
 

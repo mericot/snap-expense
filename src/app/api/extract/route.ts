@@ -268,6 +268,18 @@ export async function POST(req: NextRequest) {
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 256,
+      // Reading a receipt is transcription, not composition — there is no
+      // upside to sampling. Left unset this defaults to 1.0, which showed up as
+      // the same image returning a different total between runs: the 60-item
+      // fixture gave 10035.62 twice and 910035.62 once, a leading digit
+      // sampled out of an ambiguous glyph.
+      //
+      // Worth being clear about what this does not fix. On that same fixture
+      // the date and tax were wrong *identically* on all three passes
+      // (2026->2025, 590.33->550.23) — deterministic misreads of an image that
+      // had been squashed, not sampling noise. Temperature only ever made those
+      // consistent; the tiling in the previous commit is what made them right.
+      temperature: 0,
       messages: [
         {
           role: 'user',
