@@ -4,7 +4,7 @@ import { useId, useState } from 'react'
 import { Button, Pill, cx } from '@/components/ui'
 import { CATEGORIES } from '@/lib/categories'
 import type { Expense } from '@/lib/supabase'
-import { money, needsCategory, shortDate } from './format'
+import { money, needsCategory, needsReview, shortDate } from './format'
 
 /**
  * One receipt in the inbox — display state and inline edit state.
@@ -104,9 +104,13 @@ export default function ReceiptRow({
     }
   }
 
-  const status = needsCategory(expense)
-    ? { label: 'Needs category', tone: 'warning' as const }
-    : { label: 'Ready', tone: 'default' as const }
+  // Ordered by cost of being wrong. A total the extraction doubted outranks a
+  // missing category: one is money, the other is filing.
+  const status = needsReview(expense)
+    ? { label: 'Check totals', tone: 'warning' as const }
+    : needsCategory(expense)
+      ? { label: 'Needs category', tone: 'warning' as const }
+      : { label: 'Ready', tone: 'default' as const }
 
   if (editing) {
     return (

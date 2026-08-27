@@ -250,6 +250,7 @@ function App({ session }: { session: Session }) {
         count: 0,
         total: 0,
         needingCategory: 0,
+        needingReview: 0,
       })
       grouped.sort((a, b) => b.key.localeCompare(a.key))
     }
@@ -384,6 +385,10 @@ function App({ session }: { session: Session }) {
       total: result.total,
       tax: result.tax,
       category: result.category,
+      // Kept with the row so a shaky read stays findable after saving. The
+      // server may have forced this down from the model's own 'high' when the
+      // receipt failed to add up — see src/lib/receipt-schema.ts.
+      confidence: result.confidence,
     })
     if (dbError) {
       setError(`Save failed: ${dbError.message}`)
