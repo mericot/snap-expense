@@ -30,6 +30,7 @@ import sharp from 'sharp'
 // Imported, not reimplemented: `tiled` must measure the geometry that actually
 // ships. Node strips the type annotations at load time.
 import { planTiles, JPEG_QUALITY as TILE_QUALITY } from '../src/lib/receipt-tiles.ts'
+import { RECEIPT_TOOL, validateReceipt } from '../src/lib/receipt-schema.ts'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -121,24 +122,23 @@ async function extract(file, cfg, mode) {
   }
   content.push({ type: 'text', text: prompt })
 
-  const req = { model: cfg.model, max_tokens: cfg.maxTokens, messages: [{ role: 'user', content }] }
+  const req = {
+    model: cfg.model,
+    max_tokens: cfg.maxTokens,
+    messages: [{ role: 'user', content }],
+    // Same tool the route sends, imported rather than copied.
+    tools: [RECEIPT_TOOL],
+    tool_choice: { type: 'tool', name: RECEIPT_TOOL.name },
+  }
   if (cfg.temperature !== undefined) req.temperature = Number(cfg.temperature)
 
   const msg = await anthropic.messages.create(req)
-  const text = msg.content[0].type === 'text' ? msg.content[0].text.trim() : ''
+  const toolUse = msg.content.find((b) => b.type === 'tool_use')
+  if (!toolUse) return { parsed: null, parseError: 'no_tool_use', meta, usage: msg.usage }
 
-  // Same parse the route does, including the unguarded regex fallback.
-  let parsed, parseError = null
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    const m = text.match(/\{[\s\S]*\}/)
-    if (!m) parseError = 'unparseable_response'
-    else {
-      try { parsed = JSON.parse(m[0]) } catch { parseError = 'fallback_parse_threw' }
-    }
-  }
-  return { parsed, parseError, meta, usage: msg.usage }
+  // Score the validated output, because that is what the user is shown.
+  const { receipt, reasons, downgraded } = validateReceipt(toolUse.input)
+  return { parsed: receipt, raw: toolUse.input, reasons, downgraded, parseError: null, meta, usage: msg.usage }
 }
 
 // A null expectation is a real expectation: the card slip has no tax line, and
@@ -176,7 +176,7 @@ const raw = await pool(jobs, CONCURRENCY, async ({ f, p }) => {
   catch (e) { return { f, p, error: e.message?.slice(0, 120) } }
 })
 
-const FIELDS = ['merchant', 'date', 'total', 'tax']
+const FIELDS = ['merchant', 'date', 'subtotal', 'total', 'tax']
 const rows = []
 const totals = Object.fromEntries(FIELDS.map((k) => [k, { ok: 0, n: 0 }]))
 
@@ -205,20 +205,25 @@ for (const f of files) {
     stable: seen.size === 1,
     gotTotals: [...new Set(runs.map((r) => r.parsed?.total ?? (r.parseError || r.error || 'null')))],
     errors: runs.filter((r) => r.parseError || r.error).length,
+    checks: [...new Set(runs.flatMap((r) => r.reasons ?? []))],
+    expectLow: Boolean(want.expectLowConfidence),
+    lowRuns: runs.filter((r) => r.parsed?.confidence === 'low').length,
   })
 }
 
 rows.sort((a, b) => a.items - b.items)
 const pad = (s, n) => String(s).padEnd(n)
-console.log(pad('FIXTURE', 26) + pad('ITEMS', 6) + pad('WIDTH', 7) + pad('SENT', 14) +
-            pad('MERCH', 6) + pad('DATE', 6) + pad('TOTAL', 6) + pad('TAX', 6) + pad('STABLE', 7) + 'TOTALS SEEN')
+console.log(pad('FIXTURE', 24) + pad('ITEMS', 6) + pad('MERCH', 6) + pad('DATE', 6) +
+            pad('SUBTOT', 7) + pad('TOTAL', 6) + pad('TAX', 6) + pad('LOW', 5) + pad('STABLE', 7) + 'CHECKS FIRED')
 console.log('-'.repeat(118))
 for (const r of rows) {
   console.log(
-    pad(r.file.replace('.png', ''), 26) + pad(r.items, 6) + pad(r.widthKept, 7) + pad(r.sent, 14) +
+    pad(r.file.replace('.png', ''), 24) + pad(r.items, 6) +
     pad(`${r.score.merchant}/${PASSES}`, 6) + pad(`${r.score.date}/${PASSES}`, 6) +
+    pad(`${r.score.subtotal}/${PASSES}`, 7) +
     pad(`${r.score.total}/${PASSES}`, 6) + pad(`${r.score.tax}/${PASSES}`, 6) +
-    pad(r.stable ? 'yes' : 'NO', 7) + r.gotTotals.join(', ').slice(0, 40)
+    pad(`${r.lowRuns}/${PASSES}`, 5) +
+    pad(r.stable ? 'yes' : 'NO', 7) + (r.checks.join(',') || '-').slice(0, 40)
   )
 }
 console.log('-'.repeat(118))
@@ -226,6 +231,11 @@ const pct = (o, n) => n ? Math.round((o / n) * 100) + '%' : '-'
 console.log('OVERALL  ' + FIELDS.map((k) => `${k} ${pct(totals[k].ok, totals[k].n)}`).join('   '))
 const unstable = rows.filter((r) => !r.stable).length
 console.log(`STABILITY  ${files.length - unstable}/${files.length} fixtures identical across ${PASSES} passes`)
+// A fixture marked expectLowConfidence must be caught on every pass; any other
+// fixture going low is a false alarm, which is how a useful check gets ignored.
+const missed = rows.filter((r) => r.expectLow && r.lowRuns < PASSES).map((r) => r.file)
+const falseAlarms = rows.filter((r) => !r.expectLow && r.lowRuns > 0).map((r) => r.file)
+console.log(`CHECKS     missed: ${missed.join(', ') || 'none'}   false alarms: ${falseAlarms.join(', ') || 'none'}`)
 const inTok = raw.reduce((s, r) => s + (r.usage?.input_tokens ?? 0), 0)
 console.log(`TOKENS  ${inTok} input across ${raw.length} calls\n`)
 

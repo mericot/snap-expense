@@ -162,6 +162,45 @@ case that justifies the arithmetic check: `120.00 + 7.50 = 127.50`, so
 `subtotal + tax != total`, and nothing in the current output marks it. `confidence`
 is `"high"`.
 
+## Tool schema and the arithmetic check (2026-08-27)
+
+Output shape moved from prose JSON to an enforced tool schema, and `subtotal`
+and `tip` are now extracted so the totals can be checked against each other.
+
+All 13 fixtures: **merchant 100%, date 100%, subtotal 100%, total 100%, tax 100%**,
+13/13 stable, and the consistency check fires on exactly the one fixture built to
+trip it, with no false alarms.
+
+### The regression this nearly shipped
+
+Asking for `subtotal` alongside `total` changed the model's behaviour in a way no
+existing fixture would have caught. On `receipt_inconsistent` — which prints
+`SUBTOTAL 120.00`, `SALES TAX 7.50`, `TOTAL 227.50` — it began returning:
+
+```
+subtotal 120.00   tax 7.50   total 127.50   confidence "high"
+```
+
+It had silently **computed** the total instead of reading it, quietly correcting a
+receipt that disagrees with itself. The figures then reconciled, so the arithmetic
+check saw nothing wrong. The check was defeated by the model hiding the very
+disagreement it exists to detect — and the number returned was one no receipt ever
+showed.
+
+Fixed by a prompt rule that transcription is the job: never compute a figure from
+the others, never adjust one to make a receipt add up, and record what is printed
+even when it is wrong. Now reads `227.50`, fires `totals_do_not_add_up`, and forces
+confidence low on every pass.
+
+Worth keeping in mind for real receipts, where the printed total is the amount
+actually charged and a computed one is fiction.
+
+### Cost
+
+The tool definition is sent with every request, so input tokens rise from ~1,835 to
+~2,900 per call (+58%) on top of the tiling increase. Still fractions of a cent on
+Haiku, but it is the second cost rise in this sequence and worth watching together.
+
 ## Caveats
 
 - The harness resizes with `sharp`; the browser uses canvas `drawImage`. Resampling differs
