@@ -108,6 +108,51 @@ Input tokens rise 2.33x (1,048 → 2,484 per call averaged over the set; only ta
 tile at all). `NOTES.md` puts current extraction at ~$0.0025/receipt, so this is roughly a
 half-cent per long receipt.
 
+## Edge-case fixtures (added 2026-08-27)
+
+The original eight isolate receipt *length* and nothing else — one template, one
+unambiguous date, no tips, no refunds, `TOTAL` always equal to `VISA TENDERED`.
+Five generated fixtures cover the cases the prompt rules are actually aimed at.
+Scored against the post-tiling code, 3 passes:
+
+| Fixture | Tests | Merchant | Date | Total | Tax |
+|---|---|---|---|---|---|
+| `receipt_card_slip` | `AMOUNT` vs `TOTAL`, no tax line | 3/3 | 3/3 | 3/3 | 3/3 |
+| `receipt_tip_line` | total = subtotal + tax + tip | 3/3 | 3/3 | 3/3 | 3/3 |
+| `receipt_ambiguous_date` | `03/04/2026` resolved by US address | 3/3 | 3/3 | 3/3 | 3/3 |
+| `receipt_inconsistent` | printed arithmetic deliberately wrong | 3/3 | 3/3 | 3/3 | 3/3 |
+| **`receipt_refund`** | **negative total** | 3/3 | 3/3 | **0/3** | **0/3** |
+
+**Overall across all 13: merchant 100%, date 100%, total 92%, tax 92%.**
+
+### The refund bug
+
+```
+truth   total -48.67   tax -2.87
+pass0   total  48.67   tax  2.87   confidence "high"
+pass1   total  48.67   tax  2.87   confidence "high"
+pass2   total  48.67   tax  2.87   confidence "high"
+```
+
+The receipt reads `REFUND TOTAL  -$48.67` and `CREDIT TO VISA  -$48.67`; the sign
+is dropped on every pass. A credit is recorded as a charge, so one refund puts the
+ledger out by twice its value, and `confidence` stays `"high"` throughout. Stable
+across passes, so this is a prompt gap rather than sampling.
+
+### What the other four settle
+
+Three of the prompt rules planned for §1.5 turn out to be **already handled**: the
+card slip picks `TOTAL 22.00` over `AMOUNT 18.40` and correctly returns `tax: null`;
+the restaurant receipt picks `104.66` over the `82.50` subtotal; the ambiguous date
+resolves to March 4 from the US address. Writing rules for those would be
+belt-and-braces against a failure that does not occur. Worth keeping the fixtures as
+regression cover, not worth prompt text.
+
+`receipt_inconsistent` reads `227.50` faithfully — correct behaviour — and is the
+case that justifies the arithmetic check: `120.00 + 7.50 = 127.50`, so
+`subtotal + tax != total`, and nothing in the current output marks it. `confidence`
+is `"high"`.
+
 ## Caveats
 
 - The harness resizes with `sharp`; the browser uses canvas `drawImage`. Resampling differs

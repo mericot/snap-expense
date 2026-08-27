@@ -1,11 +1,120 @@
 {
   "_comment": "Hand-verified ground truth, read off each image at native resolution. Every row satisfies subtotal + tax = total. 'lineItems' is the count of purchased line items, which is the variable the fixture set is designed to isolate.",
-  "receipt_verified.png":       { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 1130.05, "tax": 70.63,  "total": 1200.68,  "lineItems": 15, "note": "baseline — reads correctly today" },
-  "receipt_35items.png":        { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 6446.78, "tax": 402.92, "total": 6849.70,  "lineItems": 35 },
-  "receipt_45items.png":        { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 7563.17, "tax": 472.70, "total": 8035.87,  "lineItems": 45 },
-  "receipt_50items.png":        { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 9161.95, "tax": 572.62, "total": 9734.57,  "lineItems": 50 },
-  "receipt_verified_v2.png":    { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 9445.29, "tax": 590.33, "total": 10035.62, "lineItems": 60, "note": "known-failure case — returns total 110035.02, tax 8590.33" },
-  "receipt_hard_faded.png":     { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 793.54,  "tax": 49.60,  "total": 843.14,   "lineItems": 12, "note": "degraded print, short receipt" },
-  "receipt_hard_crumpled.png":  { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 793.54,  "tax": 49.60,  "total": 843.14,   "lineItems": 12, "note": "degraded print, short receipt" },
-  "receipt_hard_combo.png":     { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 793.54,  "tax": 49.60,  "total": 843.14,   "lineItems": 12, "note": "degraded print, short receipt" }
+  "receipt_verified.png": {
+    "merchant": "THE HOME DEPOT",
+    "date": "2026-08-20",
+    "subtotal": 1130.05,
+    "tax": 70.63,
+    "total": 1200.68,
+    "lineItems": 15,
+    "note": "baseline — reads correctly today"
+  },
+  "receipt_35items.png": {
+    "merchant": "THE HOME DEPOT",
+    "date": "2026-08-20",
+    "subtotal": 6446.78,
+    "tax": 402.92,
+    "total": 6849.7,
+    "lineItems": 35
+  },
+  "receipt_45items.png": {
+    "merchant": "THE HOME DEPOT",
+    "date": "2026-08-20",
+    "subtotal": 7563.17,
+    "tax": 472.7,
+    "total": 8035.87,
+    "lineItems": 45
+  },
+  "receipt_50items.png": {
+    "merchant": "THE HOME DEPOT",
+    "date": "2026-08-20",
+    "subtotal": 9161.95,
+    "tax": 572.62,
+    "total": 9734.57,
+    "lineItems": 50
+  },
+  "receipt_verified_v2.png": {
+    "merchant": "THE HOME DEPOT",
+    "date": "2026-08-20",
+    "subtotal": 9445.29,
+    "tax": 590.33,
+    "total": 10035.62,
+    "lineItems": 60,
+    "note": "known-failure case — returns total 110035.02, tax 8590.33"
+  },
+  "receipt_hard_faded.png": {
+    "merchant": "THE HOME DEPOT",
+    "date": "2026-08-20",
+    "subtotal": 793.54,
+    "tax": 49.6,
+    "total": 843.14,
+    "lineItems": 12,
+    "note": "degraded print, short receipt"
+  },
+  "receipt_hard_crumpled.png": {
+    "merchant": "THE HOME DEPOT",
+    "date": "2026-08-20",
+    "subtotal": 793.54,
+    "tax": 49.6,
+    "total": 843.14,
+    "lineItems": 12,
+    "note": "degraded print, short receipt"
+  },
+  "receipt_hard_combo.png": {
+    "merchant": "THE HOME DEPOT",
+    "date": "2026-08-20",
+    "subtotal": 793.54,
+    "tax": 49.6,
+    "total": 843.14,
+    "lineItems": 12,
+    "note": "degraded print, short receipt"
+  },
+  "receipt_tip_line.png": {
+    "merchant": "THE GRANARY TABLE",
+    "date": "2026-04-12",
+    "subtotal": 82.5,
+    "tax": 5.16,
+    "total": 104.66,
+    "tip": 17,
+    "lineItems": 4,
+    "note": "tip line — total is subtotal + tax + tip. Returning 82.50 or 87.66 is the failure."
+  },
+  "receipt_card_slip.png": {
+    "merchant": "BLUE DORY COFFEE",
+    "date": "2026-05-03",
+    "subtotal": 18.4,
+    "tax": null,
+    "total": 22,
+    "tip": 3.6,
+    "lineItems": 0,
+    "note": "card slip — AMOUNT 18.40 is pre-tip, TOTAL 22.00 is the charge. No tax line; tax should be null."
+  },
+  "receipt_ambiguous_date.png": {
+    "merchant": "THE HOME DEPOT",
+    "date": "2026-03-04",
+    "subtotal": 55.9,
+    "tax": 3.49,
+    "total": 59.39,
+    "lineItems": 3,
+    "note": "ambiguous 03/04/2026 — the US address resolves it to March 4. 2026-04-03 is the failure."
+  },
+  "receipt_refund.png": {
+    "merchant": "THE HOME DEPOT",
+    "date": "2026-06-19",
+    "subtotal": -45.8,
+    "tax": -2.87,
+    "total": -48.67,
+    "lineItems": 1,
+    "note": "refund — total is negative. Returning +48.67 is the failure."
+  },
+  "receipt_inconsistent.png": {
+    "merchant": "THE HOME DEPOT",
+    "date": "2026-07-08",
+    "subtotal": 120,
+    "tax": 7.5,
+    "total": 227.5,
+    "lineItems": 2,
+    "expectLowConfidence": true,
+    "note": "printed arithmetic is wrong on purpose: 120.00 + 7.50 = 127.50, not 227.50. Reading it faithfully is correct; the subtotal+tax check must force confidence low."
+  }
 }

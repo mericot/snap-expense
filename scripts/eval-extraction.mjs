@@ -141,9 +141,16 @@ async function extract(file, cfg, mode) {
   return { parsed, parseError, meta, usage: msg.usage }
 }
 
-const money = (a, b) => a != null && b != null && Math.abs(Number(a) - Number(b)) < 0.005
-const str = (a, b) => a != null && b != null &&
-  String(a).trim().toLowerCase() === String(b).trim().toLowerCase()
+// A null expectation is a real expectation: the card slip has no tax line, and
+// inventing one there is as wrong as getting a number wrong.
+const money = (got, want) =>
+  want == null
+    ? got == null
+    : got != null && Math.abs(Number(got) - Number(want)) < 0.005
+const str = (got, want) =>
+  want == null
+    ? got == null
+    : got != null && String(got).trim().toLowerCase() === String(want).trim().toLowerCase()
 
 async function pool(items, n, fn) {
   const out = new Array(items.length)
