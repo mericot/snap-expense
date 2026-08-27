@@ -125,7 +125,9 @@ Scored against the post-tiling code, 3 passes:
 
 **Overall across all 13: merchant 100%, date 100%, total 92%, tax 92%.**
 
-### The refund bug
+### The refund bug — found here, fixed
+
+As found:
 
 ```
 truth   total -48.67   tax -2.87
@@ -135,9 +137,16 @@ pass2   total  48.67   tax  2.87   confidence "high"
 ```
 
 The receipt reads `REFUND TOTAL  -$48.67` and `CREDIT TO VISA  -$48.67`; the sign
-is dropped on every pass. A credit is recorded as a charge, so one refund puts the
-ledger out by twice its value, and `confidence` stays `"high"` throughout. Stable
-across passes, so this is a prompt gap rather than sampling.
+was dropped on every pass. A credit was recorded as a charge, so one refund put the
+ledger out by twice its value, with `confidence` `"high"` throughout. Stable across
+passes, so a prompt gap rather than sampling.
+
+Fixed by one prompt rule naming refunds explicitly, plus removing a client-side
+`total < 0` rejection that would otherwise have made a correctly-read refund
+permanently uneditable. Now `-48.67 / -2.87` on all three passes, with no other
+fixture changing sign.
+
+**All 13 fixtures now score 100% on merchant, date, total and tax, 13/13 stable.**
 
 ### What the other four settle
 

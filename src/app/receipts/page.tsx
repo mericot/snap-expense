@@ -263,7 +263,16 @@ function App({ session }: { session: Session }) {
     if (!draft.merchant.trim()) return 'Merchant is required.'
     if (!draft.date) return 'Date is required.'
     const total = parseFloat(draft.total)
-    if (!Number.isFinite(total) || total < 0) return 'Total must be a valid number.'
+    // Negative totals are legitimate: a refund or return is money coming back,
+    // and extraction now reads them as negative. Rejecting them here made a
+    // correctly-read refund permanently uneditable — it saved fine, since
+    // handleSave only checks for null, and then every edit bounced.
+    //
+    // The bound is the `numeric(10, 2)` column: 8 digits before the decimal.
+    // Past that Postgres raises a numeric overflow, which reached the user as
+    // a raw driver message.
+    if (!Number.isFinite(total)) return 'Total must be a valid number.'
+    if (Math.abs(total) >= 100_000_000) return 'Total is out of range.'
     const { error: dbError } = await supabase
       .from('expenses')
       .update({
