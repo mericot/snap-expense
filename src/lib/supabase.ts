@@ -28,6 +28,8 @@ export type Expense = {
   total: number
   tax: number | null
   category: string | null
+  /** 'high' | 'low', or null for rows saved before the column existed. */
+  confidence: string | null
   deleted_at: string | null
 }
 
