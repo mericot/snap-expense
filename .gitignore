@@ -45,3 +45,6 @@ next-env.d.ts
 
 # claude code worktree state
 .claude/worktrees/
+
+# eval run output (regenerate with scripts/eval-extraction.mjs)
+eval-*.json
