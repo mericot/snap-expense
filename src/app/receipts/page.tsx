@@ -15,6 +15,7 @@ import ExtractionReview, { type ExtractedExpense } from './ExtractionReview'
 import ReceiptRow, { type EditDraft } from './ReceiptRow'
 import RetentionNotice from './RetentionNotice'
 import { ALLOWED_TYPES, FREE_MONTHLY_LIMIT, HEIC_TYPES } from './constants'
+import { JPEG_QUALITY, planTiles } from '@/lib/receipt-tiles'
 import {
   currentMonthKey,
   groupByMonth,
@@ -49,31 +50,63 @@ function isHeic(file: File) {
   return HEIC_TYPES.includes(file.type) || name.endsWith('.heic') || name.endsWith('.heif')
 }
 
-function resizeImage(file: File, maxPx: number): Promise<{ base64: string; mediaType: string }> {
+function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     const url = URL.createObjectURL(file)
     img.onload = () => {
       URL.revokeObjectURL(url)
-      const { width, height } = img
-      const scale = Math.min(1, maxPx / Math.max(width, height))
-      const canvas = document.createElement('canvas')
-      canvas.width = Math.round(width * scale)
-      canvas.height = Math.round(height * scale)
-      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
-      resolve({ base64: canvas.toDataURL('image/jpeg', 0.85).split(',')[1], mediaType: 'image/jpeg' })
+      resolve(img)
     }
-    img.onerror = reject
+    img.onerror = (err) => {
+      URL.revokeObjectURL(url)
+      reject(err)
+    }
     img.src = url
   })
 }
 
-function readToBase64(file: File): Promise<{ base64: string; mediaType: string }> {
+/**
+ * Render a receipt into the JPEG tiles the extract route expects.
+ *
+ * This used to scale every photo so its long edge was 1500px, which on a tall
+ * receipt capped the height and crushed the width. See src/lib/receipt-tiles.ts
+ * for what that cost and why slicing is the fix; the geometry lives there
+ * because the server's HEIC path has to slice identically.
+ */
+async function prepareImage(file: File): Promise<{ images: string[]; mediaType: string }> {
+  const img = await loadImage(file)
+  const images = planTiles(img.naturalWidth, img.naturalHeight).map((tile) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = tile.outWidth
+    canvas.height = tile.outHeight
+    canvas
+      .getContext('2d')!
+      .drawImage(
+        img,
+        0, tile.srcTop, img.naturalWidth, tile.srcHeight,
+        0, 0, tile.outWidth, tile.outHeight,
+      )
+    const data = canvas.toDataURL('image/jpeg', JPEG_QUALITY).split(',')[1]
+    // Drop the backing store rather than waiting for GC. A long receipt is
+    // several of these at once and WebKit is slow to reclaim canvas memory.
+    canvas.width = 0
+    canvas.height = 0
+    return data
+  })
+  return { images, mediaType: 'image/jpeg' }
+}
+
+/**
+ * HEIC goes up untouched — the browser cannot decode it into a canvas, so the
+ * server converts and slices it instead. One image in, tiles out the far side.
+ */
+function readToBase64(file: File): Promise<{ images: string[]; mediaType: string }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () =>
       resolve({
-        base64: (reader.result as string).split(',')[1],
+        images: [(reader.result as string).split(',')[1]],
         mediaType: file.type || 'image/heic',
       })
     reader.onerror = reject
@@ -180,13 +213,13 @@ function App({ session }: { session: Session }) {
     }
     if (!heic) setPreview(URL.createObjectURL(file))
     try {
-      const { base64, mediaType } = heic
+      const { images, mediaType } = heic
         ? await readToBase64(file)
-        : await resizeImage(file, 1500)
+        : await prepareImage(file)
       const res = await fetch('/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: base64, mediaType }),
+        body: JSON.stringify({ images, mediaType }),
       })
       const data = await res.json()
       // The route returns a specific, actionable message for rate limiting,
@@ -230,7 +263,16 @@ function App({ session }: { session: Session }) {
     if (!draft.merchant.trim()) return 'Merchant is required.'
     if (!draft.date) return 'Date is required.'
     const total = parseFloat(draft.total)
-    if (!Number.isFinite(total) || total < 0) return 'Total must be a valid number.'
+    // Negative totals are legitimate: a refund or return is money coming back,
+    // and extraction now reads them as negative. Rejecting them here made a
+    // correctly-read refund permanently uneditable — it saved fine, since
+    // handleSave only checks for null, and then every edit bounced.
+    //
+    // The bound is the `numeric(10, 2)` column: 8 digits before the decimal.
+    // Past that Postgres raises a numeric overflow, which reached the user as
+    // a raw driver message.
+    if (!Number.isFinite(total)) return 'Total must be a valid number.'
+    if (Math.abs(total) >= 100_000_000) return 'Total is out of range.'
     const { error: dbError } = await supabase
       .from('expenses')
       .update({
