@@ -28,13 +28,13 @@ import { MAX_UPLOAD_MB } from './constants'
 
 export default function Dropzone({
   onPick,
-  onFile,
+  onFiles,
   busy,
 }: {
   /** Open the file picker. */
   onPick: () => void
-  /** A file arrived by drag and drop. */
-  onFile: (file: File) => void
+  /** Files arrived by drag and drop. All of them — not just the first. */
+  onFiles: (files: File[]) => void
   busy: boolean
 }) {
   const [dragging, setDragging] = useState(false)
@@ -52,8 +52,10 @@ export default function Dropzone({
       onDrop={(e) => {
         e.preventDefault()
         setDragging(false)
-        const file = e.dataTransfer.files?.[0]
-        if (!busy && file) onFile(file)
+        // Every dropped file, not files[0]. Taking only the first silently
+        // discarded the rest, which on a batch of sixty lost fifty-nine.
+        const files = Array.from(e.dataTransfer.files ?? [])
+        if (!busy && files.length) onFiles(files)
       }}
       className={cx(
         'flex w-full cursor-pointer flex-col items-start gap-1 text-left',
@@ -65,7 +67,7 @@ export default function Dropzone({
       <span className="text-[13px] text-text-muted">
         {busy
           ? 'Reading your receipt…'
-          : 'Drop a photo here — we read the merchant, date and total for you.'}
+          : 'Drop photos here — we read the merchant, date and total for you.'}
       </span>
       {/* Naming the formats and the size cap here is cheaper than letting the
           upload fail: an oversized file costs a rate-limit slot to find out. */}

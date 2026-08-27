@@ -171,6 +171,27 @@ function App({ session }: { session: Session }) {
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [scansThisMonth, setScansThisMonth] = useState(0)
 
+  /**
+   * The upload queue.
+   *
+   * Both entry points used to take `files[0]` and drop the rest on the floor
+   * without saying so — dropping sixty receipts scanned one and silently
+   * discarded fifty-nine.
+   *
+   * The list lives in a ref rather than state because it is advanced from async
+   * handlers and from user actions, and a stale closure over it would silently
+   * skip or repeat a file. `batch` is the part the UI renders.
+   */
+  const queueRef = useRef<File[]>([])
+  const [batch, setBatch] = useState<{
+    total: number
+    done: number
+    /** Set when the queue stopped early — the reason is shown to the user. */
+    halted: string | null
+    /** Files rejected up front for their type, named so they can be retried. */
+    skipped: string[]
+  }>({ total: 0, done: 0, halted: null, skipped: [] })
+
   const loadExpenses = useCallback(async () => {
     // The quota row the server writes is keyed by date_trunc('month', now()),
     // which Supabase evaluates in UTC. Match that, and compare with >= rather
@@ -243,17 +264,49 @@ function App({ session }: { session: Session }) {
     setResult(null)
     setError(null)
     setPreview(null)
+    // Batch counters go with the form. A halted batch never reaches here — it
+    // leaves its explanation up until the next upload replaces it.
+    setBatch({ total: 0, done: 0, halted: null, skipped: [] })
     if (inputRef.current) inputRef.current.value = ''
   }
 
-  async function handleFile(file: File) {
+  /**
+   * Take the next file off the queue and extract it, or finish the batch.
+   */
+  function advanceQueue() {
+    const next = queueRef.current.shift()
+    if (next) {
+      void processFile(next)
+    } else {
+      clearForm()
+    }
+  }
+
+  /**
+   * Stop the whole batch rather than pushing the remaining files at a wall.
+   *
+   * The rate limit is 20/hour and the free quota is 10/month, so a large drop
+   * meets one of them partway through. Carrying on would spend the user's time
+   * collecting the same refusal once per file; the honest thing is to stop, say
+   * why, and say how many are left.
+   */
+  function haltQueue(reason: string) {
+    const remaining = queueRef.current.length + 1
+    queueRef.current = []
+    setBatch((b) => ({
+      ...b,
+      halted: `${reason} ${remaining} receipt${remaining === 1 ? '' : 's'} from this batch ${remaining === 1 ? 'was' : 'were'} not scanned.`,
+    }))
+    setStatus('error')
+  }
+
+  async function processFile(file: File) {
     setError(null)
     setResult(null)
     setPreview(null)
 
     if (!isPaid && usedThisMonth >= FREE_MONTHLY_LIMIT) {
-      setStatus('error')
-      setError(
+      haltQueue(
         `You have used all ${FREE_MONTHLY_LIMIT} free receipts this month. Upgrade to Pro for unlimited scans.`,
       )
       return
@@ -261,13 +314,6 @@ function App({ session }: { session: Session }) {
 
     setStatus('loading')
     const heic = isHeic(file)
-    if (!heic && !ALLOWED_TYPES.includes(file.type)) {
-      setStatus('error')
-      setError(
-        `Unsupported file type (${file.type || 'unknown'}). Please use JPEG, PNG, WebP, GIF or HEIC.`,
-      )
-      return
-    }
     if (!heic) setPreview(URL.createObjectURL(file))
     try {
       const { images, mediaType } = heic
@@ -282,13 +328,46 @@ function App({ session }: { session: Session }) {
       // The route returns a specific, actionable message for rate limiting,
       // oversize bodies, timeouts and unsupported media types. Surface it
       // rather than collapsing everything into "Something went wrong".
-      if (!res.ok) throw new Error(data.error ?? 'Extraction failed')
+      if (!res.ok) {
+        // 429 and 403 are not this file's fault and will refuse the next one
+        // identically, so they end the batch instead of repeating per file.
+        if (res.status === 429 || res.status === 403) {
+          haltQueue(data.error ?? 'Extraction limit reached.')
+          return
+        }
+        throw new Error(data.error ?? 'Extraction failed')
+      }
       setResult(data)
       setStatus('done')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
       setStatus('error')
     }
+  }
+
+  /**
+   * Entry point for both the picker and the drop target.
+   */
+  function handleFiles(files: File[]) {
+    const usable: File[] = []
+    const skipped: string[] = []
+    for (const f of files) {
+      if (isHeic(f) || ALLOWED_TYPES.includes(f.type)) usable.push(f)
+      else skipped.push(f.name)
+    }
+
+    if (usable.length === 0) {
+      setBatch({ total: 0, done: 0, halted: null, skipped })
+      setStatus('error')
+      setError(
+        `Unsupported file type${skipped.length === 1 ? '' : 's'}. Please use JPEG, PNG, WebP, GIF or HEIC.`,
+      )
+      return
+    }
+
+    queueRef.current = usable.slice(1)
+    setBatch({ total: usable.length, done: 0, halted: null, skipped })
+    void processFile(usable[0])
   }
 
   async function handleSave() {
@@ -312,8 +391,19 @@ function App({ session }: { session: Session }) {
       return
     }
     await loadExpenses()
-    setStatus('saved')
-    setTimeout(clearForm, 1500)
+    setBatch((b) => ({ ...b, done: b.done + 1 }))
+    if (queueRef.current.length > 0) {
+      advanceQueue()
+    } else {
+      setStatus('saved')
+      setTimeout(clearForm, 1500)
+    }
+  }
+
+  /** Discard the current result and move on; the file is counted as handled. */
+  function discardAndAdvance() {
+    setBatch((b) => ({ ...b, done: b.done + 1 }))
+    advanceQueue()
   }
 
   async function handleUpdate(id: string, draft: EditDraft): Promise<string | null> {
@@ -433,7 +523,7 @@ function App({ session }: { session: Session }) {
                     {showDropzone && (
                       <Dropzone
                         onPick={() => inputRef.current?.click()}
-                        onFile={handleFile}
+                        onFiles={handleFiles}
                         busy={status === 'loading'}
                       />
                     )}
@@ -476,6 +566,33 @@ function App({ session }: { session: Session }) {
                       </Card>
                     )}
 
+                    {batch.halted && (
+                      <Card padding="none" className="px-[18px] py-4">
+                        <p role="alert" className="text-[13px] text-warning">
+                          {batch.halted}
+                        </p>
+                        <p className="mt-1 text-[13px] text-text-tertiary">
+                          Anything already saved is safe. Drop the rest again once the limit resets.
+                        </p>
+                      </Card>
+                    )}
+
+                    {batch.skipped.length > 0 && (
+                      <Card padding="none" className="px-[18px] py-4">
+                        <p className="text-[13px] text-text-muted">
+                          Skipped {batch.skipped.length} unsupported file
+                          {batch.skipped.length === 1 ? '' : 's'}: {batch.skipped.join(', ')}
+                        </p>
+                      </Card>
+                    )}
+
+                    {batch.total > 1 && !batch.halted && (
+                      <p className="text-[13px] text-text-tertiary">
+                        Receipt {Math.min(batch.done + 1, batch.total)} of {batch.total}
+                        {status === 'loading' ? ' — reading…' : ''}
+                      </p>
+                    )}
+
                     {reviewing && result && (
                       <ExtractionReview
                         result={result}
@@ -483,7 +600,7 @@ function App({ session }: { session: Session }) {
                         saving={status === 'saving'}
                         error={status === 'done' ? error : null}
                         onSave={handleSave}
-                        onDiscard={clearForm}
+                        onDiscard={discardAndAdvance}
                       />
                     )}
                   </>
@@ -536,12 +653,13 @@ function App({ session }: { session: Session }) {
       <input
         ref={inputRef}
         type="file"
+        multiple
         accept="image/*,.heic,.heif"
         capture="environment"
         className="hidden"
         onChange={(e) => {
-          const file = e.target.files?.[0]
-          if (file) handleFile(file)
+          const files = Array.from(e.target.files ?? [])
+          if (files.length) handleFiles(files)
           // Reset so picking the same file twice still fires `change`.
           e.target.value = ''
         }}
