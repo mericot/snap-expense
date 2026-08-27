@@ -52,7 +52,8 @@ Rules:
 - If a field is not legible, use null for that field and set confidence to "low".
 - Never guess a total or tax — null beats a wrong number.
 - category must be exactly one of: ${CATEGORIES.join(', ')}. Never invent a category.
-- date must be YYYY-MM-DD format or null.`
+- date must be YYYY-MM-DD format or null.
+- Refunds and returns are negative. If this is a return, refund or credit — REFUND, RETURN, CREDIT, or amounts already printed with a minus sign — then total and tax must both be negative. Never drop the minus sign.`
 
 /**
  * Prepended when a receipt arrives as several tiles. Without it the model has
