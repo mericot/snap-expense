@@ -125,27 +125,63 @@ function App({ session }: { session: Session }) {
   >('idle')
   const [result, setResult] = useState<ExtractedExpense | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [preview, setPreview] = useState<string | null>(null)
+  const [preview, setPreviewState] = useState<string | null>(null)
+
+  /**
+   * The preview is a blob URL, and a blob URL pins the whole file in memory
+   * until it is revoked. Nothing revoked it: clearing the preview only nulled
+   * the state, so every scan left its original photo — several MB from a phone
+   * camera — held for the life of the page. A long session leaked all of them.
+   *
+   * The ref exists because the revoke has to happen against the *previous*
+   * value, which the setter no longer has once React has moved on.
+   */
+  const previewUrlRef = useRef<string | null>(null)
+  const setPreview = useCallback((url: string | null) => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    previewUrlRef.current = url
+    setPreviewState(url)
+  }, [])
+
+  // Navigating away mid-review would otherwise leak the last one.
+  useEffect(() => () => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+  }, [])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [scansThisMonth, setScansThisMonth] = useState(0)
 
   const loadExpenses = useCallback(async () => {
+    // The quota row the server writes is keyed by date_trunc('month', now()),
+    // which Supabase evaluates in UTC. Match that, and compare with >= rather
+    // than equality so a timestamp formatted a shade differently still lands.
     const now = new Date()
-    const monthStart = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01T00:00:00`
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString()
 
-    const [{ data }, { count }] = await Promise.all([
+    const [{ data }, { data: quota }] = await Promise.all([
       supabase
         .from('expenses')
         .select('*')
         .is('deleted_at', null)
         .order('created_at', { ascending: false }),
+      // Counting rows in `expenses` measured the wrong thing. The server meters
+      // *extractions* in extraction_quota — an extract-and-discard costs a unit
+      // and saves no row — so the two drifted apart in the direction that
+      // embarrasses: the page said "2 of 10" while the server had you at 7, and
+      // the next scan came back 403 out of nowhere. It also counted
+      // soft-deleted receipts, having dropped the deleted_at filter its sibling
+      // query has.
+      //
+      // extraction_quota is readable by its owner under RLS, so this is the
+      // same number the server enforces rather than a second guess at it.
       supabase
-        .from('expenses')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', monthStart),
+        .from('extraction_quota')
+        .select('extraction_count')
+        .gte('month_start', monthStart)
+        .order('month_start', { ascending: false })
+        .limit(1),
     ])
     if (data) setExpenses(data)
-    setScansThisMonth(count ?? 0)
+    setScansThisMonth(quota?.[0]?.extraction_count ?? 0)
   }, [])
 
   // Initial fetch on mount. The rule wants this hoisted out of an effect, which
