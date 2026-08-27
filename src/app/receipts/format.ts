@@ -87,11 +87,55 @@ export type MonthGroup = {
   count: number
   total: number
   needingCategory: number
+  needingReview: number
 }
 
 /** A receipt with no category is the "Needs category" status. */
 export function needsCategory(expense: Expense) {
   return expense.category == null || expense.category === ''
+}
+
+/**
+ * A receipt the extraction was not sure about.
+ *
+ * Only an explicit 'low' counts. `null` means the row predates the column and
+ * was never assessed, which is not the same as a bad read — treating it as one
+ * would flag every historical receipt at once and make the signal worthless on
+ * the day it shipped.
+ */
+export function needsReview(expense: Expense) {
+  return expense.confidence === 'low'
+}
+
+/**
+ * An already-saved receipt that looks like the one being saved.
+ *
+ * Merchant, date and total together. Merchant is compared case-insensitively
+ * because the extraction is not consistent about it — "The Home Depot" and
+ * "THE HOME DEPOT" both occur in real rows, and a case-sensitive match would
+ * miss exactly the duplicates it exists to catch.
+ *
+ * Totals are compared as numbers: Postgres returns `numeric` as a string, so
+ * "227.50" and 227.5 are the same receipt and a `===` would disagree.
+ *
+ * A null merchant, date or total never matches. Those receipts cannot be saved
+ * anyway, and treating null as equal to null would make every incomplete scan
+ * look like a duplicate of every other.
+ */
+export function findDuplicate(
+  expenses: Expense[],
+  candidate: { merchant: string | null; date: string | null; total: number | null },
+): Expense | null {
+  if (!candidate.merchant || !candidate.date || candidate.total == null) return null
+  const merchant = candidate.merchant.trim().toLowerCase()
+  return (
+    expenses.find(
+      (e) =>
+        e.date === candidate.date &&
+        Number(e.total) === Number(candidate.total) &&
+        (e.merchant ?? '').trim().toLowerCase() === merchant,
+    ) ?? null
+  )
 }
 
 /**
@@ -125,21 +169,29 @@ export function groupByMonth(expenses: Expense[]): MonthGroup[] {
         count: sorted.length,
         total: sorted.reduce((sum, e) => sum + Number(e.total), 0),
         needingCategory: sorted.filter(needsCategory).length,
+        needingReview: sorted.filter(needsReview).length,
       }
     })
 }
 
 /**
- * "12 receipts · $1,284.60 · 3 need a category".
+ * "12 receipts · $1,284.60 · 2 to check · 3 need a category".
  *
- * The third segment is omitted when nothing needs a category — "0 need a
- * category" is noise on a tidy month.
+ * Trailing segments are omitted when their count is zero — "0 need a category"
+ * is noise on a tidy month.
  */
-export function monthMeta(group: Pick<MonthGroup, 'count' | 'total' | 'needingCategory'>) {
+export function monthMeta(
+  group: Pick<MonthGroup, 'count' | 'total' | 'needingCategory' | 'needingReview'>,
+) {
   const segments = [
     `${group.count} ${group.count === 1 ? 'receipt' : 'receipts'}`,
     money(group.total),
   ]
+  // Ahead of the category segment: a total that may be wrong costs more than a
+  // receipt that is merely unfiled.
+  if (group.needingReview > 0) {
+    segments.push(`${group.needingReview} to check`)
+  }
   if (group.needingCategory > 0) {
     segments.push(
       `${group.needingCategory} ${group.needingCategory === 1 ? 'needs' : 'need'} a category`,

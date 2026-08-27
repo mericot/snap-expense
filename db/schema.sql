@@ -32,6 +32,10 @@ create table if not exists expenses (
   total       numeric(10, 2) not null,
   tax         numeric(10, 2),
   category    text,
+  -- Extraction confidence at save time. Nullable: rows saved before this column
+  -- existed have no assessment, which is distinct from 'high'. See
+  -- migrations/2026-08-27-add-confidence.sql.
+  confidence  text,
   -- No `default auth.uid()` in production. The app always supplies user_id
   -- explicitly on insert, and RLS rejects a row that is not the caller's, so
   -- the default was never load bearing. Recorded as-is rather than "improved",
