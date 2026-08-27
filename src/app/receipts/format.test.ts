@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Expense } from '@/lib/supabase'
-import { groupByMonth, monthMeta, needsCategory, needsReview } from './format'
+import { findDuplicate, groupByMonth, monthMeta, needsCategory, needsReview } from './format'
 
 const receipt = (over: Partial<Expense> = {}): Expense => ({
   id: crypto.randomUUID(),
@@ -86,5 +86,57 @@ describe('monthMeta', () => {
 
   it('still singularises the category segment', () => {
     expect(monthMeta({ ...base, needingCategory: 1 })).toContain('1 needs a category')
+  })
+})
+
+describe('findDuplicate', () => {
+  const saved = [
+    receipt({ merchant: 'The Home Depot', date: '2026-08-27', total: 12102.57 }),
+    receipt({ merchant: 'BLUE DORY COFFEE', date: '2026-05-03', total: 22 }),
+  ]
+
+  it('finds the same receipt scanned twice', () => {
+    const hit = findDuplicate(saved, {
+      merchant: 'The Home Depot', date: '2026-08-27', total: 12102.57,
+    })
+    expect(hit?.merchant).toBe('The Home Depot')
+  })
+
+  it('matches merchant case-insensitively', () => {
+    // Both spellings occur in real rows; a case-sensitive match would miss the
+    // duplicates this exists to catch.
+    expect(findDuplicate(saved, {
+      merchant: 'THE HOME DEPOT', date: '2026-08-27', total: 12102.57,
+    })).not.toBeNull()
+  })
+
+  it('tolerates surrounding whitespace', () => {
+    expect(findDuplicate(saved, {
+      merchant: '  the home depot ', date: '2026-08-27', total: 12102.57,
+    })).not.toBeNull()
+  })
+
+  it('compares totals numerically, since Postgres returns numeric as a string', () => {
+    const asString = [receipt({ merchant: 'X', date: '2026-01-01', total: '227.50' as unknown as number })]
+    expect(findDuplicate(asString, { merchant: 'X', date: '2026-01-01', total: 227.5 })).not.toBeNull()
+  })
+
+  it('does not match when any one field differs', () => {
+    const base = { merchant: 'The Home Depot', date: '2026-08-27', total: 12102.57 }
+    expect(findDuplicate(saved, { ...base, total: 12102.58 })).toBeNull()
+    expect(findDuplicate(saved, { ...base, date: '2026-08-26' })).toBeNull()
+    expect(findDuplicate(saved, { ...base, merchant: 'Lowes' })).toBeNull()
+  })
+
+  it('never matches on a null field', () => {
+    // Two incomplete scans are not duplicates of each other.
+    const withNulls = [receipt({ merchant: null as unknown as string, date: '2026-08-27', total: 1 })]
+    expect(findDuplicate(withNulls, { merchant: null, date: '2026-08-27', total: 1 })).toBeNull()
+    expect(findDuplicate(saved, { merchant: 'The Home Depot', date: null, total: 12102.57 })).toBeNull()
+    expect(findDuplicate(saved, { merchant: 'The Home Depot', date: '2026-08-27', total: null })).toBeNull()
+  })
+
+  it('returns null on an empty list', () => {
+    expect(findDuplicate([], { merchant: 'X', date: '2026-01-01', total: 1 })).toBeNull()
   })
 })
