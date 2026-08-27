@@ -1,0 +1,5 @@
+# Deliberately conservative: only things that are provably not part of a build.
+# The eval fixtures are 1.6 MB of PNGs used by scripts/eval-extraction.mjs, which
+# is run by hand and never imported by the app.
+test-fixtures/
+eval-*.json

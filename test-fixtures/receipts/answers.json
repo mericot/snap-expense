@@ -1,0 +1,11 @@
+{
+  "_comment": "Hand-verified ground truth, read off each image at native resolution. Every row satisfies subtotal + tax = total. 'lineItems' is the count of purchased line items, which is the variable the fixture set is designed to isolate.",
+  "receipt_verified.png":       { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 1130.05, "tax": 70.63,  "total": 1200.68,  "lineItems": 15, "note": "baseline — reads correctly today" },
+  "receipt_35items.png":        { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 6446.78, "tax": 402.92, "total": 6849.70,  "lineItems": 35 },
+  "receipt_45items.png":        { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 7563.17, "tax": 472.70, "total": 8035.87,  "lineItems": 45 },
+  "receipt_50items.png":        { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 9161.95, "tax": 572.62, "total": 9734.57,  "lineItems": 50 },
+  "receipt_verified_v2.png":    { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 9445.29, "tax": 590.33, "total": 10035.62, "lineItems": 60, "note": "known-failure case — returns total 110035.02, tax 8590.33" },
+  "receipt_hard_faded.png":     { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 793.54,  "tax": 49.60,  "total": 843.14,   "lineItems": 12, "note": "degraded print, short receipt" },
+  "receipt_hard_crumpled.png":  { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 793.54,  "tax": 49.60,  "total": 843.14,   "lineItems": 12, "note": "degraded print, short receipt" },
+  "receipt_hard_combo.png":     { "merchant": "THE HOME DEPOT", "date": "2026-08-20", "subtotal": 793.54,  "tax": 49.60,  "total": 843.14,   "lineItems": 12, "note": "degraded print, short receipt" }
+}
