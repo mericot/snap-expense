@@ -1,6 +1,7 @@
 import Anthropic, { APIConnectionTimeoutError, RateLimitError, APIError } from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { CATEGORIES } from '@/lib/categories'
+import { MAX_TILES, planTiles } from '@/lib/receipt-tiles'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createSupabaseAdmin } from '@/lib/supabase-admin'
 import { track, latencyBucket, sizeBucket } from '@/lib/analytics'
@@ -15,6 +16,35 @@ const anthropic = new Anthropic({
 
 const HEIC_TYPES = ['image/heic', 'image/heif']
 const ALLOWED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', ...HEIC_TYPES]
+
+/**
+ * The extraction prompt.
+ *
+ * Module level so scripts/eval-extraction.mjs can read it out of this file at
+ * runtime instead of keeping its own copy. If the two drift, the eval stops
+ * measuring what ships — so the harness parses this exact declaration and
+ * aborts if it cannot find it. Renaming or reshaping it means updating
+ * readRouteConfig() there.
+ */
+const EXTRACTION_PROMPT = `You are a receipt parser. Extract data from this receipt and return STRICT JSON only — no prose, no markdown fences, no explanation.
+
+Return exactly this shape:
+{"merchant":"string","date":"YYYY-MM-DD","total":0.00,"tax":0.00,"category":"string","confidence":"high"}
+
+Rules:
+- Return JSON only. Nothing before or after the JSON object.
+- If a field is not legible, use null for that field and set confidence to "low".
+- Never guess a total or tax — null beats a wrong number.
+- category must be exactly one of: ${CATEGORIES.join(', ')}. Never invent a category.
+- date must be YYYY-MM-DD format or null.`
+
+/**
+ * Prepended when a receipt arrives as several tiles. Without it the model has
+ * no reason to think three images are one document and may read them as three
+ * separate receipts.
+ */
+const tiledPreamble = (count: number) =>
+  `The ${count} images above are consecutive, slightly overlapping vertical slices of ONE receipt, ordered top to bottom. Read them together as a single document. Ignore any duplicated lines caused by the overlap.\n\n`
 
 const RATE_LIMIT_PER_HOUR = 20
 const MAX_BODY_BYTES = 10 * 1024 * 1024 // 10 MB
@@ -117,10 +147,30 @@ export async function POST(req: NextRequest) {
     try { parsed = JSON.parse(bodyText) } catch {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
-    const { imageBase64, mediaType } = parsed
+    // `images` is an array of tiles; `imageBase64` is the old single-image shape.
+    // Both are accepted because a browser tab left open across a deploy will
+    // still be running the previous client, and rejecting it would turn a
+    // routine release into a failed scan for anyone mid-session.
+    const { imageBase64, images, mediaType } = parsed
+    const inputImages: unknown[] = Array.isArray(images)
+      ? images
+      : imageBase64 != null
+        ? [imageBase64]
+        : []
 
-    if (!imageBase64 || !mediaType) {
-      return NextResponse.json({ error: 'Missing imageBase64 or mediaType' }, { status: 400 })
+    if (inputImages.length === 0 || !mediaType) {
+      return NextResponse.json({ error: 'Missing images or mediaType' }, { status: 400 })
+    }
+    if (!inputImages.every((i) => typeof i === 'string' && i.length > 0)) {
+      return NextResponse.json({ error: 'images must be non-empty base64 strings' }, { status: 400 })
+    }
+    // Input tokens scale with pixel area, so an unbounded array is an unbounded
+    // bill. The client never exceeds MAX_TILES; anything that does is not ours.
+    if (inputImages.length > MAX_TILES) {
+      return NextResponse.json(
+        { error: `Too many image tiles. Maximum ${MAX_TILES}.` },
+        { status: 400 },
+      )
     }
 
     if (!ALLOWED_MEDIA_TYPES.includes(mediaType)) {
@@ -185,19 +235,33 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    let finalBase64 = imageBase64
+    let finalImages = inputImages as string[]
     let finalMediaType = mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
 
-    // Convert HEIC/HEIF → JPEG using heic-convert (has its own decoder, no libvips needed)
-    // Then resize with sharp
+    // HEIC/HEIF arrives whole: the browser cannot decode it into a canvas, so
+    // it cannot tile it either. Convert with heic-convert (own decoder, no
+    // libvips needed), then slice here with the same geometry the client uses —
+    // this path used to `fit: 'inside'` at 1500px, which is exactly the
+    // long-edge squash that corrupted digits on long receipts.
     if (HEIC_TYPES.includes(mediaType)) {
-      const inputBuffer = Buffer.from(imageBase64, 'base64')
-      const jpegBuffer = await heicConvert({ buffer: inputBuffer, format: 'JPEG', quality: 0.9 })
-      const resized = await sharp(Buffer.from(jpegBuffer))
-        .resize({ width: 1500, height: 1500, fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 88 })
-        .toBuffer()
-      finalBase64 = resized.toString('base64')
+      const jpegBuffer = Buffer.from(
+        await heicConvert({ buffer: Buffer.from(finalImages[0], 'base64'), format: 'JPEG', quality: 0.9 }),
+      )
+      const { width, height } = await sharp(jpegBuffer).metadata()
+      if (!width || !height) {
+        return NextResponse.json({ error: 'Could not read image dimensions.' }, { status: 400 })
+      }
+      finalImages = await Promise.all(
+        planTiles(width, height).map(async (tile) =>
+          (
+            await sharp(jpegBuffer)
+              .extract({ left: 0, top: tile.srcTop, width, height: tile.srcHeight })
+              .resize(tile.outWidth, tile.outHeight)
+              .jpeg({ quality: 92 })
+              .toBuffer()
+          ).toString('base64'),
+        ),
+      )
       finalMediaType = 'image/jpeg'
     }
 
@@ -208,23 +272,15 @@ export async function POST(req: NextRequest) {
         {
           role: 'user',
           content: [
+            ...finalImages.map((data) => ({
+              type: 'image' as const,
+              source: { type: 'base64' as const, media_type: finalMediaType, data },
+            })),
             {
-              type: 'image',
-              source: { type: 'base64', media_type: finalMediaType, data: finalBase64 },
-            },
-            {
-              type: 'text',
-              text: `You are a receipt parser. Extract data from this receipt and return STRICT JSON only — no prose, no markdown fences, no explanation.
-
-Return exactly this shape:
-{"merchant":"string","date":"YYYY-MM-DD","total":0.00,"tax":0.00,"category":"string","confidence":"high"}
-
-Rules:
-- Return JSON only. Nothing before or after the JSON object.
-- If a field is not legible, use null for that field and set confidence to "low".
-- Never guess a total or tax — null beats a wrong number.
-- category must be exactly one of: ${CATEGORIES.join(', ')}. Never invent a category.
-- date must be YYYY-MM-DD format or null.`,
+              type: 'text' as const,
+              text:
+                (finalImages.length > 1 ? tiledPreamble(finalImages.length) : '') +
+                EXTRACTION_PROMPT,
             },
           ],
         },

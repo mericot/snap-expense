@@ -27,6 +27,9 @@
  */
 import Anthropic from '@anthropic-ai/sdk'
 import sharp from 'sharp'
+// Imported, not reimplemented: `tiled` must measure the geometry that actually
+// ships. Node strips the type annotations at load time.
+import { planTiles, JPEG_QUALITY as TILE_QUALITY } from '../src/lib/receipt-tiles.ts'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -42,10 +45,10 @@ const arg = (n, d) => {
 const MODE = arg('mode', 'current')
 const PASSES = Number(arg('passes', 3))
 const CONCURRENCY = Number(arg('concurrency', 4))
-const MAX_PX = 1500          // mirrors resizeImage(file, 1500) in receipts/page.tsx
-const JPEG_QUALITY = 85      // mirrors toDataURL('image/jpeg', 0.85)
-const TALL_RATIO = 2.2       // above this aspect ratio, `tiled` slices
-const TILE_OVERLAP = 0.08
+// `current` deliberately keeps the OLD constants: it is the baseline being
+// compared against, so it must not follow the shipped module forward.
+const MAX_PX = 1500          // the old resizeImage(file, 1500) long-edge cap
+const JPEG_QUALITY = 85      // the old toDataURL('image/jpeg', 0.85)
 
 /** Pull the live model, token cap and prompt out of the route so this can't drift. */
 function readRouteConfig() {
@@ -53,8 +56,9 @@ function readRouteConfig() {
   const model = src.match(/model:\s*'([^']+)'/)?.[1]
   const maxTokens = Number(src.match(/max_tokens:\s*(\d+)/)?.[1])
   const temperature = src.match(/temperature:\s*([\d.]+)/)?.[1]
-  let prompt = src.match(/type:\s*'text',\s*\n\s*text:\s*`([\s\S]*?)`,\s*\n/)?.[1]
-  if (!model || !maxTokens || !prompt) {
+  let prompt = src.match(/const EXTRACTION_PROMPT = `([\s\S]*?)`\n/)?.[1]
+  const preamble = src.match(/const tiledPreamble = [^`]*`([\s\S]*?)`\n/)?.[1]
+  if (!model || !maxTokens || !prompt || !preamble) {
     throw new Error(
       'Could not parse model/max_tokens/prompt out of route.ts — its shape changed. ' +
       'Fix the regexes in readRouteConfig() rather than hardcoding, or the eval ' +
@@ -64,7 +68,7 @@ function readRouteConfig() {
   const categories = readFileSync(join(ROOT, 'src/lib/categories.ts'), 'utf8')
     .match(/\[([^\]]+)\]/)[1].split(',').map((s) => s.trim().replace(/'/g, ''))
   prompt = prompt.replace('${CATEGORIES.join(\', \')}', categories.join(', '))
-  return { model, maxTokens, temperature, prompt }
+  return { model, maxTokens, temperature, prompt, preamble }
 }
 
 /** Build the image block(s) exactly as the chosen mode would send them. */
@@ -77,23 +81,25 @@ async function buildImages(file, mode) {
     return { blocks: [b], meta: { sent: `${width}x${height}`, widthKept: 1 } }
   }
 
-  if (mode === 'tiled' && height / width > TALL_RATIO) {
-    const bandCount = Math.ceil(height / (width * 2))
-    const band = Math.ceil(height / bandCount)
-    const overlap = Math.round(band * TILE_OVERLAP)
+  if (mode === 'tiled') {
+    const tiles = planTiles(width, height)
     const blocks = []
-    for (let i = 0; i < bandCount; i++) {
-      const top = Math.max(0, i * band - (i > 0 ? overlap : 0))
-      const h = Math.min(height - top, band + overlap)
+    for (const t of tiles) {
       blocks.push(
-        await sharp(path).extract({ left: 0, top, width, height: h })
-          .jpeg({ quality: JPEG_QUALITY }).toBuffer()
+        await sharp(path)
+          .extract({ left: 0, top: t.srcTop, width, height: t.srcHeight })
+          .resize(t.outWidth, t.outHeight)
+          .jpeg({ quality: Math.round(TILE_QUALITY * 100) })
+          .toBuffer(),
       )
     }
-    return { blocks, meta: { sent: `${bandCount} x ${width}x~${band}`, widthKept: 1 } }
+    const label = tiles.length === 1
+      ? `${tiles[0].outWidth}x${tiles[0].outHeight}`
+      : `${tiles.length} x ${tiles[0].outWidth}x~${tiles[0].outHeight}`
+    return { blocks, meta: { sent: label, widthKept: tiles[0].outWidth / width } }
   }
 
-  // `current` (and short receipts under `tiled`): scale by the LONG edge.
+  // `current`: the old long-edge scale, kept verbatim as the baseline.
   const scale = Math.min(1, MAX_PX / Math.max(width, height))
   const w = Math.round(width * scale)
   const h = Math.round(height * scale)
@@ -111,7 +117,7 @@ async function extract(file, cfg, mode) {
   }))
   let prompt = cfg.prompt
   if (blocks.length > 1) {
-    prompt = `The ${blocks.length} images above are consecutive, slightly overlapping vertical slices of ONE receipt, top to bottom. Read them together as a single document.\n\n${prompt}`
+    prompt = cfg.preamble.replace('${count}', String(blocks.length)).replace(/\\n/g, '\n') + prompt
   }
   content.push({ type: 'text', text: prompt })
 
