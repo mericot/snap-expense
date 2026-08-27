@@ -14,6 +14,22 @@ const anthropic = new Anthropic({
   maxRetries: 1,
 })
 
+/**
+ * Function timeout, in seconds.
+ *
+ * The Anthropic client above is configured with `timeout: 30_000` and the catch
+ * block maps its timeout error to a 504 with a useful message. None of that can
+ * run if the platform kills the function first — left unset this inherits the
+ * deployment default, and if that default is under 30s the SDK timeout is
+ * unreachable and the handling below is dead code.
+ *
+ * Tiling makes this matter more than it did: requests carry several images
+ * instead of one, and the HEIC path now decodes and slices rather than doing a
+ * single resize. 60 gives the 30s call room to finish or to fail the way the
+ * error handling expects.
+ */
+export const maxDuration = 60
+
 const HEIC_TYPES = ['image/heic', 'image/heif']
 const ALLOWED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', ...HEIC_TYPES]
 
