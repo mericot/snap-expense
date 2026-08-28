@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { useSession } from '@/components/SessionProvider'
 import { Button, Card } from '@/components/ui'
 import AppHeader from '@/app/receipts/AppHeader'
+import PaymentFailedBanner from '@/components/PaymentFailedBanner'
 import type { Subscription } from '@/lib/supabase'
 
 const PERIOD_DATE = new Intl.DateTimeFormat('en-US', {
@@ -157,6 +158,8 @@ export default function SettingsPage() {
       <main className="flex-1 bg-surface">
         <div className="mx-auto flex max-w-[900px] flex-col gap-5 p-6">
           <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-text">Settings</h1>
+
+          <PaymentFailedBanner />
 
           <Card>
             <div className="flex flex-col gap-4">

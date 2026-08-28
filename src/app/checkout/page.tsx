@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { isPaidPlan } from '@/lib/subscription'
 import { redirect } from 'next/navigation'
 import CheckoutEmbed from './CheckoutEmbed'
 import {
@@ -62,9 +63,7 @@ export default async function CheckoutPage({
     .single()
 
   if (
-    sub &&
-    sub.plan !== 'free' &&
-    (sub.status === 'active' || sub.status === 'trialing')
+    isPaidPlan(sub?.plan, sub?.status)
   ) {
     redirect('/receipts')
   }

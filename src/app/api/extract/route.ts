@@ -2,6 +2,7 @@ import Anthropic, { APIConnectionTimeoutError, RateLimitError, APIError } from '
 import { NextRequest, NextResponse } from 'next/server'
 import { MAX_TILES, planTiles } from '@/lib/receipt-tiles'
 import { RECEIPT_TOOL, validateReceipt } from '@/lib/receipt-schema'
+import { isPaidPlan } from '@/lib/subscription'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createSupabaseAdmin } from '@/lib/supabase-admin'
 import { track, latencyBucket, sizeBucket } from '@/lib/analytics'
@@ -107,7 +108,7 @@ export async function POST(req: NextRequest) {
       .eq('user_id', user.id)
       .single()
 
-    const isPaid = sub && sub.plan !== 'free' && (sub.status === 'active' || sub.status === 'trialing')
+    const isPaid = isPaidPlan(sub?.plan, sub?.status)
 
     trackingUserId = user.id
     // Recorded on nearly every event below, because "how often does this happen"
