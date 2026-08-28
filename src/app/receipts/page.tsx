@@ -141,7 +141,21 @@ function App({ session }: { session: Session }) {
    * by the side that actually knows.
    */
   const tierKnown = !subLoading
+  /**
+   * Two pickers, because one attribute cannot serve both jobs.
+   *
+   * `capture="environment"` makes a phone open the camera directly, which is the
+   * right default for a receipt scanner — you are at the till with the receipt in
+   * your hand. But per the HTML Media Capture spec it also makes the photo
+   * library unreachable and causes `multiple` to be ignored, so a screenshot of
+   * an emailed receipt, or a photo somebody sent you, could not be uploaded from
+   * a phone at all.
+   *
+   * So: `cameraRef` keeps the one-tap camera, `inputRef` reaches the library and
+   * takes several files. Nothing is taken away from the camera path.
+   */
   const inputRef = useRef<HTMLInputElement>(null)
+  const cameraRef = useRef<HTMLInputElement>(null)
   const [status, setStatus] = useState<
     'idle' | 'loading' | 'done' | 'saving' | 'saved' | 'error'
   >('idle')
@@ -544,7 +558,21 @@ function App({ session }: { session: Session }) {
                       >
                         Export CSV
                       </Button>
-                      <Button size="sm" onClick={() => inputRef.current?.click()}>
+                      {/* Wrapped rather than given `hidden` directly: Button's
+                          own `inline-flex` and a `hidden` class are both display
+                          utilities, and which one wins depends on Tailwind's
+                          internal ordering rather than on the order written
+                          here. The wrapper makes it unambiguous. */}
+                      <div className="hidden pointer-coarse:block">
+                        <Button size="sm" onClick={() => cameraRef.current?.click()}>
+                          Take photo
+                        </Button>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => inputRef.current?.click()}
+                      >
                         Add receipt
                       </Button>
                     </div>
@@ -556,7 +584,16 @@ function App({ session }: { session: Session }) {
                   <>
                     {showDropzone && (
                       <Dropzone
-                        onPick={() => inputRef.current?.click()}
+                        // On a phone this stays the camera, which is what
+                        // tapping it did before the library picker existed.
+                        // Deciding at click time rather than at render avoids
+                        // branching on a media query during hydration.
+                        onPick={() => {
+                          const touch =
+                            typeof window !== 'undefined' &&
+                            window.matchMedia('(pointer: coarse)').matches
+                          ;(touch ? cameraRef : inputRef).current?.click()
+                        }}
                         onFiles={handleFiles}
                         busy={status === 'loading'}
                       />
@@ -690,12 +727,28 @@ function App({ session }: { session: Session }) {
         type="file"
         multiple
         accept="image/*,.heic,.heif"
-        capture="environment"
         className="hidden"
         onChange={(e) => {
           const files = Array.from(e.target.files ?? [])
           if (files.length) handleFiles(files)
           // Reset so picking the same file twice still fires `change`.
+          e.target.value = ''
+        }}
+      />
+
+      {/* The camera. `capture` makes a phone skip the chooser and open it
+          straight away; desktop browsers ignore the attribute entirely, which is
+          why the button that opens this is hidden on a fine pointer. No
+          `multiple`, because `capture` would override it regardless. */}
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*,.heic,.heif"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? [])
+          if (files.length) handleFiles(files)
           e.target.value = ''
         }}
       />
