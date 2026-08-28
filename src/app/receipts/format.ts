@@ -108,6 +108,20 @@ export function needsReview(expense: Expense) {
 }
 
 /**
+ * The fields that decide whether two receipts are the same one.
+ *
+ * Deliberately narrower than `Expense`: the batch review compares rows that
+ * have not been saved yet and so have no id or timestamps, and casting those
+ * into an `Expense` shape just to satisfy the signature would be a lie the
+ * compiler happened to accept.
+ */
+export type ReceiptLike = {
+  merchant: string | null
+  date: string | null
+  total: number | null
+}
+
+/**
  * An already-saved receipt that looks like the one being saved.
  *
  * Merchant, date and total together. Merchant is compared case-insensitively
@@ -122,10 +136,10 @@ export function needsReview(expense: Expense) {
  * anyway, and treating null as equal to null would make every incomplete scan
  * look like a duplicate of every other.
  */
-export function findDuplicate(
-  expenses: Expense[],
-  candidate: { merchant: string | null; date: string | null; total: number | null },
-): Expense | null {
+export function findDuplicate<T extends ReceiptLike>(
+  expenses: readonly T[],
+  candidate: ReceiptLike,
+): T | null {
   if (!candidate.merchant || !candidate.date || candidate.total == null) return null
   const merchant = candidate.merchant.trim().toLowerCase()
   return (
