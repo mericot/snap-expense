@@ -14,6 +14,7 @@ import { useSubscription } from '@/components/SubscriptionProvider'
 import AppHeader from './AppHeader'
 import Dropzone from './Dropzone'
 import ExtractionReview, { type ExtractedExpense } from './ExtractionReview'
+import BatchReview, { type PendingReceipt } from './BatchReview'
 import ReceiptRow, { type EditDraft } from './ReceiptRow'
 import RetentionNotice from './RetentionNotice'
 import { ALLOWED_TYPES, FREE_MONTHLY_LIMIT, HEIC_TYPES } from './constants'
@@ -215,6 +216,20 @@ function App({ session }: { session: Session }) {
    * skip or repeat a file. `batch` is the part the UI renders.
    */
   const queueRef = useRef<File[]>([])
+
+  /**
+   * Results waiting to be reviewed together.
+   *
+   * A batch does not stop after each file. Extracting all of them first and
+   * reviewing once turns sixty decisions into one pass down a column, which is
+   * the point — nobody reads the sixtieth card as carefully as the first, and a
+   * total misread as 110035.02 is exactly what a tiring reader waves through.
+   *
+   * A single file keeps the old card, which shows the receipt next to the
+   * figures. That is worth more than consistency when there is only one.
+   */
+  const [pending, setPending] = useState<PendingReceipt[]>([])
+  const batchModeRef = useRef(false)
   const [batch, setBatch] = useState<{
     total: number
     done: number
@@ -298,6 +313,8 @@ function App({ session }: { session: Session }) {
     setError(null)
     setPreview(null)
     setDuplicateOf(null)
+    setPending([])
+    batchModeRef.current = false
     // Batch counters go with the form. A halted batch never reaches here — it
     // leaves its explanation up until the next upload replaces it.
     setBatch({ total: 0, done: 0, halted: null, skipped: [] })
@@ -311,9 +328,15 @@ function App({ session }: { session: Session }) {
     const next = queueRef.current.shift()
     if (next) {
       void processFile(next)
-    } else {
-      clearForm()
+      return
     }
+    // Batch finished: hold everything for one review pass. `done` rather than
+    // clearing, so the dropzone stays out of the way until a decision is made.
+    if (batchModeRef.current) {
+      setStatus('done')
+      return
+    }
+    clearForm()
   }
 
   /**
@@ -372,6 +395,15 @@ function App({ session }: { session: Session }) {
         }
         throw new Error(data.error ?? 'Extraction failed')
       }
+      if (batchModeRef.current) {
+        setPending((p) => [
+          ...p,
+          { id: crypto.randomUUID(), fileName: file.name, result: data },
+        ])
+        setBatch((b) => ({ ...b, done: b.done + 1 }))
+        advanceQueue()
+        return
+      }
       setResult(data)
       setStatus('done')
     } catch (err) {
@@ -401,6 +433,8 @@ function App({ session }: { session: Session }) {
     }
 
     queueRef.current = usable.slice(1)
+    batchModeRef.current = usable.length > 1
+    setPending([])
     setBatch({ total: usable.length, done: 0, halted: null, skipped })
     void processFile(usable[0])
   }
@@ -447,6 +481,52 @@ function App({ session }: { session: Session }) {
     } else {
       setStatus('saved')
       setTimeout(clearForm, 1500)
+    }
+  }
+
+  /**
+   * Insert everything in the batch that has the fields a row requires.
+   *
+   * One statement rather than a loop: a partial failure halfway through a loop
+   * leaves the user with some receipts saved, some not, and no way to tell
+   * which. Rows missing a merchant, date or total are left in the list instead
+   * of being dropped, so nothing disappears without being seen.
+   */
+  async function handleSaveAll() {
+    const savable = pending.filter(
+      (p) => p.result.merchant && p.result.date && p.result.total != null,
+    )
+    if (savable.length === 0) return
+
+    setStatus('saving')
+    setError(null)
+    const { error: dbError } = await supabase.from('expenses').insert(
+      savable.map((p) => ({
+        user_id: session.user.id,
+        merchant: p.result.merchant,
+        date: p.result.date,
+        total: p.result.total,
+        tax: p.result.tax,
+        category: p.result.category,
+        confidence: p.result.confidence,
+      })),
+    )
+    if (dbError) {
+      setError(`Save failed: ${dbError.message}`)
+      setStatus('done')
+      return
+    }
+
+    await loadExpenses()
+    const savedIds = new Set(savable.map((p) => p.id))
+    const left = pending.filter((p) => !savedIds.has(p.id))
+    setPending(left)
+    if (left.length === 0) {
+      setStatus('saved')
+      setTimeout(clearForm, 1500)
+    } else {
+      // The unsavable ones stay on screen; the user still has to decide.
+      setStatus('done')
     }
   }
 
@@ -661,11 +741,24 @@ function App({ session }: { session: Session }) {
                       </Card>
                     )}
 
-                    {batch.total > 1 && !batch.halted && (
+                    {batch.total > 1 && !batch.halted && status === 'loading' && (
                       <p className="text-[13px] text-text-tertiary">
-                        Receipt {Math.min(batch.done + 1, batch.total)} of {batch.total}
-                        {status === 'loading' ? ' — reading…' : ''}
+                        Reading {Math.min(batch.done + 1, batch.total)} of {batch.total}…
                       </p>
+                    )}
+
+                    {reviewing && pending.length > 0 && (
+                      <BatchReview
+                        items={pending}
+                        expenses={expenses}
+                        saving={status === 'saving'}
+                        error={status === 'done' ? error : null}
+                        onRemove={(id) =>
+                          setPending((p) => p.filter((item) => item.id !== id))
+                        }
+                        onSaveAll={handleSaveAll}
+                        onDiscardAll={clearForm}
+                      />
                     )}
 
                     {reviewing && result && (
