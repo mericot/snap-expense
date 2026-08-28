@@ -7,6 +7,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { Button, Card } from '@/components/ui'
 import { supabase, type Expense } from '@/lib/supabase'
+import { isPaidPlan } from '@/lib/subscription'
+import PaymentFailedBanner from '@/components/PaymentFailedBanner'
 import { useSession } from '@/components/SessionProvider'
 import { useSubscription } from '@/components/SubscriptionProvider'
 import AppHeader from './AppHeader'
@@ -119,7 +121,7 @@ function readToBase64(file: File): Promise<{ images: string[]; mediaType: string
 
 function App({ session }: { session: Session }) {
   const { plan, status: subStatus, loading: subLoading } = useSubscription()
-  const isPaid = plan !== 'free' && (subStatus === 'active' || subStatus === 'trialing')
+  const isPaid = isPaidPlan(plan, subStatus)
 
   /**
    * Whether the plan is actually known yet.
@@ -529,6 +531,8 @@ function App({ session }: { session: Session }) {
       <main className="flex-1 bg-surface">
         <div className="mx-auto flex max-w-[900px] flex-col gap-5 p-6">
           <h1 className="sr-only">Receipts</h1>
+
+          <PaymentFailedBanner />
 
           {groups.map((group, index) => {
             const isFirst = index === 0

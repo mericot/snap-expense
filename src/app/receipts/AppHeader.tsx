@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { isPaidPlan } from '@/lib/subscription'
 import { Button } from '@/components/ui'
 import { useSubscription } from '@/components/SubscriptionProvider'
 import { initialsFromEmail } from './format'
@@ -17,7 +18,7 @@ export default function AppHeader({
 }) {
   const initials = initialsFromEmail(email)
   const { plan, status } = useSubscription()
-  const isPaid = plan !== 'free' && (status === 'active' || status === 'trialing')
+  const isPaid = isPaidPlan(plan, status)
 
   return (
     <header className="border-b border-border">
