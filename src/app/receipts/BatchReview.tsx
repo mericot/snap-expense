@@ -58,10 +58,14 @@ export default function BatchReview({
   // A duplicate can be a receipt already saved, or an earlier row in this same
   // batch — dropping the same folder twice produces both.
   const seen: ExtractedExpense[] = []
-  const duplicateOf = new Map<string, ReceiptLike>()
+  const duplicateOf = new Map<string, { of: ReceiptLike; saved: boolean }>()
   for (const item of items) {
-    const prior = findDuplicate(expenses, item.result) ?? findDuplicate(seen, item.result)
-    if (prior) duplicateOf.set(item.id, prior)
+    // Which kind matters to the wording. "Already saved" is a lie for a row
+    // that merely repeats another row in a batch nothing has yet written.
+    const priorSaved = findDuplicate(expenses, item.result)
+    const priorInBatch = priorSaved ? null : findDuplicate(seen, item.result)
+    if (priorSaved) duplicateOf.set(item.id, { of: priorSaved, saved: true })
+    else if (priorInBatch) duplicateOf.set(item.id, { of: priorInBatch, saved: false })
     seen.push(item.result)
   }
 
@@ -123,12 +127,18 @@ export default function BatchReview({
                     <div className="flex flex-col items-start gap-1">
                       {cannotSave && <Pill tone="warning">Incomplete</Pill>}
                       {r.confidence === 'low' && <Pill tone="warning">Check totals</Pill>}
-                      {dupe && <Pill tone="warning">Already saved</Pill>}
+                      {dupe && (
+                        <Pill tone="warning">
+                          {dupe.saved ? 'Already saved' : 'Repeated below'}
+                        </Pill>
+                      )}
                       {!cannotSave && r.confidence !== 'low' && !dupe && <Pill>Ready</Pill>}
                     </div>
                     {dupe && (
                       <p className="mt-1 text-[12px] text-text-tertiary">
-                        {dupe.merchant}, {dupe.date ? shortDate(dupe.date) : ''}, {money(Number(dupe.total))}
+                        {dupe.saved ? 'Matches ' : 'Same as another row: '}
+                        {dupe.of.merchant}, {dupe.of.date ? shortDate(dupe.of.date) : ''},{' '}
+                        {money(Number(dupe.of.total))}
                       </p>
                     )}
                   </td>
